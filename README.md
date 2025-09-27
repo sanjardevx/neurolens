@@ -1,0 +1,81 @@
+# NeuroLens
+
+Brain tumor MRI analysis in one dashboard: **classify** the scan, **show where the model looked**, **outline the tumor**, and write a **plain-language report**.
+
+> ⚠️ Research and portfolio project, **not a medical device**. Results are not a diagnosis. Trained only on public datasets.
+
+## How it works
+
+```
+MRI upload → quality check → classifier → Grad-CAM → segmentation → features → report → dashboard
+```
+
+| Step | Model / tool | Output |
+|---|---|---|
+| Classify | EfficientNet / ConvNeXt (timm) | glioma · meningioma · pituitary · no tumor + confidence |
+| Explain | Grad-CAM | heatmap of where the model looked |
+| Segment | U-Net (segmentation_models_pytorch) | tumor mask + area |
+| Report | Ollama or LLM API, template fallback | short summary from structured features |
+
+## Engineering highlights
+
+- **Leak-free data.** The public dataset has duplicate images, some in both train and test. They are found with MD5 + perceptual hashing and removed *before* training, so test scores are not inflated.
+- **Honest evaluation.** Models are tuned on validation only. The test split is run once, at the end.
+- **Transfer learning.** Pretrained backbones, strong augmentation, mixed precision, cosine learning rate, early stopping on macro-F1.
+- **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
+- **Fast CPU serving.** Models are exported to ONNX and served by FastAPI on ONNX Runtime. No GPU needed in production.
+- **Safe reports.** The LLM sees only structured numbers (class, confidence, area, location), never the image. If the LLM fails, a template report is used. The provider is one `.env` setting.
+- **Out-of-distribution check.** Images that don't look like a brain MRI are rejected instead of classified.
+
+## Results
+
+_Only measured numbers. Filled in from real runs._
+
+| Model | Metric | Target | Test result |
+|---|---|---|---|
+| Classifier | Accuracy | ≥ 95% | — |
+| Classifier | Macro-F1 | ≥ 95% | — |
+| Segmenter | Dice | ≥ 0.85 | — |
+
+## Data
+
+| Dataset | Used for |
+|---|---|
+| [Brain Tumor MRI Dataset](https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset) | classification, 4 classes |
+| [LGG MRI Segmentation](https://www.kaggle.com/datasets/mateuszbuda/lgg-mri-segmentation) | segmentation masks |
+
+Cleaning is done in [`01_data_prep.ipynb`](ml/notebooks/01_data_prep.ipynb):
+
+| Data cleaning | Value |
+|---|---|
+| Images in the original dataset | — |
+| Duplicate groups found | — |
+| Train/test leaks removed | — |
+| Images kept (train / val / test) | — |
+
+## Tech stack
+
+| Area | Tools |
+|---|---|
+| ML | PyTorch, timm, segmentation_models_pytorch, Albumentations |
+| Serving | ONNX Runtime, FastAPI, Docker |
+| Frontend | Next.js, Tailwind, shadcn/ui, Recharts |
+| Data & reports | Supabase, Ollama / LLM API |
+| CI / Deploy | GitHub Actions, Hugging Face Spaces, Vercel |
+
+## Project layout
+
+```
+ml/notebooks/   training notebooks (run on Kaggle GPU)
+ml/data/        splits.csv + data_report.json (no images in git)
+backend/        FastAPI + ONNX Runtime
+frontend/       Next.js dashboard
+```
+
+## Status
+
+🚧 Week 1 of 6: data cleaning and first classifier.
+
+## License
+
+[MIT](LICENSE). Datasets keep their own licenses.

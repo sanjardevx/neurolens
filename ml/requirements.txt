@@ -1,0 +1,7 @@
+# Data prep (week 1). Training deps are added in week 2.
+numpy
+pandas
+pillow
+imagehash
+scikit-learn
+matplotlib
