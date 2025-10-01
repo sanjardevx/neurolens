@@ -1,7 +1,12 @@
-# Data prep (week 1). Training deps are added in week 2.
+# Data prep (01)
 numpy
 pandas
 pillow
 imagehash
 scikit-learn
 matplotlib
+
+# Training (02+), preinstalled on Kaggle
+torch
+timm
+albumentations
