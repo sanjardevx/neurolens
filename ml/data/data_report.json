@@ -1,0 +1,35 @@
+{
+  "dataset": "masoudnickparvar/brain-tumor-mri-dataset",
+  "near_dup_bits": 4,
+  "images_total": 7200,
+  "exact_duplicate_files": 187,
+  "unique_groups": 4755,
+  "label_conflict_groups": 25,
+  "train_test_leak_groups": 520,
+  "images_kept": 4730,
+  "split_counts": {
+    "train": 3310,
+    "test": 710,
+    "val": 710
+  },
+  "split_by_class": {
+    "train": {
+      "glioma": 1017,
+      "meningioma": 965,
+      "notumor": 401,
+      "pituitary": 927
+    },
+    "val": {
+      "glioma": 218,
+      "meningioma": 207,
+      "notumor": 86,
+      "pituitary": 199
+    },
+    "test": {
+      "glioma": 218,
+      "meningioma": 207,
+      "notumor": 86,
+      "pituitary": 199
+    }
+  }
+}
