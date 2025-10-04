@@ -48,10 +48,14 @@ Cleaning is done in [`01_data_prep.ipynb`](ml/notebooks/01_data_prep.ipynb):
 
 | Data cleaning | Value |
 |---|---|
-| Images in the original dataset | — |
-| Duplicate groups found | — |
-| Train/test leaks removed | — |
-| Images kept (train / val / test) | — |
+| Images in the original dataset | 7,200 |
+| Exact duplicate files | 187 |
+| Unique scans after grouping near-copies | 4,755 |
+| Scans found in both the original train and test folders | 520 |
+| Groups dropped for conflicting labels | 25 |
+| Images kept (train / val / test) | 4,730 (3,310 / 710 / 710) |
+
+Many images are the same scan saved again with other contrast or sharpening. In the `notumor` class only 573 of 1,800 images are unique. Because the original test folder is mostly copies of training images, the clean scans are split again into 70 / 15 / 15, stratified by class.
 
 ## Tech stack
 
