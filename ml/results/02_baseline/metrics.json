@@ -1,0 +1,23 @@
+{
+  "config": {
+    "model": "efficientnet_b0",
+    "img_size": 224,
+    "batch_size": 32,
+    "epochs": 30,
+    "lr": 0.0003,
+    "weight_decay": 0.0001,
+    "patience": 6,
+    "num_workers": 2,
+    "seed": 42,
+    "pretrained": true
+  },
+  "best_epoch": 16,
+  "val": {
+    "acc": 0.9803,
+    "macro_f1": 0.9807
+  },
+  "test": null,
+  "n_train": 3310,
+  "n_val": 710,
+  "n_test": 710
+}

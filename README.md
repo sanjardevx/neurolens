@@ -37,6 +37,14 @@ _Only measured numbers. Filled in from real runs._
 | Classifier | Macro-F1 | ≥ 95% | — |
 | Segmenter | Dice | ≥ 0.85 | — |
 
+**Progress on the validation split** (the test split stays closed until the final model):
+
+| Run | Val accuracy | Val macro-F1 |
+|---|---|---|
+| EfficientNet-B0, 224 px, baseline | 98.0% | 98.1% |
+
+Most remaining errors are glioma or pituitary scans predicted as meningioma. Details: [`ml/results/02_baseline`](ml/results/02_baseline).
+
 ## Data
 
 | Dataset | Used for |
