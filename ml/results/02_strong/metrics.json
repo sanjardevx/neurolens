@@ -1,0 +1,28 @@
+{
+  "config": {
+    "preset": "strong",
+    "epochs": 30,
+    "weight_decay": 0.0001,
+    "num_workers": 4,
+    "seed": 42,
+    "pretrained": true,
+    "model": "efficientnet_b3",
+    "img_size": 384,
+    "batch_size": 24,
+    "lr": 0.0003,
+    "label_smoothing": 0.1,
+    "strong_aug": true,
+    "warmup_epochs": 1,
+    "patience": 7
+  },
+  "best_epoch": 9,
+  "val": {
+    "acc": 0.9789,
+    "macro_f1": 0.9787,
+    "errors": 15
+  },
+  "test": null,
+  "n_train": 3310,
+  "n_val": 710,
+  "n_test": 710
+}
