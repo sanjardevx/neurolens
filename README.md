@@ -42,8 +42,9 @@ _Only measured numbers. Filled in from real runs._
 | Run | Val accuracy | Val macro-F1 |
 |---|---|---|
 | EfficientNet-B0, 224 px, baseline | 98.0% | 98.1% |
+| EfficientNet-B3, 384 px, strong augmentation + label smoothing | 97.9% | 97.9% |
 
-Most remaining errors are glioma or pituitary scans predicted as meningioma. Details: [`ml/results/02_baseline`](ml/results/02_baseline).
+Both runs are within one image of each other (1 val image ≈ 0.14%). The stronger run overfits less and gets every `notumor` scan right, but the two models make different mistakes: most errors are pituitary or glioma scans predicted as meningioma. Details: [`02_baseline`](ml/results/02_baseline), [`02_strong`](ml/results/02_strong).
 
 ## Data
 
@@ -86,7 +87,7 @@ frontend/       Next.js dashboard
 
 ## Status
 
-🚧 Week 1 of 6: data cleaning and first classifier.
+🚧 Week 2 of 6: final classifier, Grad-CAM and ONNX export.
 
 ## License
 
