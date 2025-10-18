@@ -1,0 +1,25 @@
+{
+  "pick": "ensemble+tta",
+  "val": {
+    "acc": 0.9845,
+    "macro_f1": 0.9842,
+    "errors": 11.0
+  },
+  "test": {
+    "acc": 0.9901,
+    "macro_f1": 0.9899,
+    "errors": 7
+  },
+  "models": {
+    "b0": [
+      "efficientnet_b0",
+      224
+    ],
+    "b3": [
+      "efficientnet_b3",
+      384
+    ]
+  },
+  "n_val": 710,
+  "n_test": 710
+}
