@@ -12,7 +12,7 @@ MRI upload → quality check → classifier → Grad-CAM → segmentation → fe
 
 | Step | Model / tool | Output |
 |---|---|---|
-| Classify | EfficientNet / ConvNeXt (timm) | glioma · meningioma · pituitary · no tumor + confidence |
+| Classify | EfficientNet-B0 + B3 ensemble (timm) | glioma · meningioma · pituitary · no tumor + confidence |
 | Explain | Grad-CAM | heatmap of where the model looked |
 | Segment | U-Net (segmentation_models_pytorch) | tumor mask + area |
 | Report | Ollama or LLM API, template fallback | short summary from structured features |
@@ -22,6 +22,7 @@ MRI upload → quality check → classifier → Grad-CAM → segmentation → fe
 - **Leak-free data.** The public dataset has duplicate images, some in both train and test. They are found with MD5 + perceptual hashing and removed *before* training, so test scores are not inflated.
 - **Honest evaluation.** Models are tuned on validation only. The test split is run once, at the end.
 - **Transfer learning.** Pretrained backbones, strong augmentation, mixed precision, cosine learning rate, early stopping on macro-F1.
+- **Ensemble + TTA.** Two different models (small B0, larger B3) make different mistakes. Averaging them, plus a flipped copy of each image, cuts val errors by about a third.
 - **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
 - **Fast CPU serving.** Models are exported to ONNX and served by FastAPI on ONNX Runtime. No GPU needed in production.
 - **Safe reports.** The LLM sees only structured numbers (class, confidence, area, location), never the image. If the LLM fails, a template report is used. The provider is one `.env` setting.
@@ -33,18 +34,23 @@ _Only measured numbers. Filled in from real runs._
 
 | Model | Metric | Target | Test result |
 |---|---|---|---|
-| Classifier | Accuracy | ≥ 95% | — |
-| Classifier | Macro-F1 | ≥ 95% | — |
+| Classifier | Accuracy | ≥ 95% | **99.0%** |
+| Classifier | Macro-F1 | ≥ 95% | **99.0%** |
 | Segmenter | Dice | ≥ 0.85 | — |
 
-**Progress on the validation split** (the test split stays closed until the final model):
+Final classifier: EfficientNet-B0 + B3 ensemble with TTA, measured once on 710 clean test images (7 errors), in full precision like the deployed model. [Test confusion matrix](ml/results/03_final/confusion_final_test.png).
 
-| Run | Val accuracy | Val macro-F1 |
-|---|---|---|
-| EfficientNet-B0, 224 px, baseline | 98.0% | 98.1% |
-| EfficientNet-B3, 384 px, strong augmentation + label smoothing | 97.9% | 97.9% |
+**How the final model was picked** (validation split, 710 images, [`03_final_classifier.ipynb`](ml/notebooks/03_final_classifier.ipynb)):
 
-Both runs are within one image of each other (1 val image ≈ 0.14%). The stronger run overfits less and gets every `notumor` scan right, but the two models make different mistakes: most errors are pituitary or glioma scans predicted as meningioma. Details: [`02_baseline`](ml/results/02_baseline), [`02_strong`](ml/results/02_strong).
+| Option | Val accuracy | Val macro-F1 | Errors |
+|---|---|---|---|
+| **B0 + B3 ensemble + TTA** | **98.5%** | **98.4%** | **11** |
+| B0 + TTA | 97.8% | 97.6% | 16 |
+| B3 + TTA | 97.6% | 97.6% | 17 |
+| EfficientNet-B0, 224 px | 97.6% | 97.3% | 17 |
+| EfficientNet-B3, 384 px, strong augmentation | 97.5% | 97.4% | 18 |
+
+Remaining errors are mostly glioma or pituitary scans predicted as meningioma. Training runs: [`02_baseline`](ml/results/02_baseline), [`02_baseline_rerun`](ml/results/02_baseline_rerun) (used in the ensemble), [`02_strong`](ml/results/02_strong).
 
 ## Data
 
@@ -87,7 +93,7 @@ frontend/       Next.js dashboard
 
 ## Status
 
-🚧 Week 2 of 6: final classifier, Grad-CAM and ONNX export.
+🚧 Week 2 of 6: classifier done (99.0% test accuracy). Next: Grad-CAM and ONNX export.
 
 ## License
 
