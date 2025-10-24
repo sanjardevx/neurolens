@@ -52,6 +52,14 @@ Final classifier: EfficientNet-B0 + B3 ensemble with TTA, measured once on 710 c
 
 Remaining errors are mostly glioma or pituitary scans predicted as meningioma. Training runs: [`02_baseline`](ml/results/02_baseline), [`02_baseline_rerun`](ml/results/02_baseline_rerun) (used in the ensemble), [`02_strong`](ml/results/02_strong).
 
+## Explainability
+
+![Grad-CAM examples](ml/results/04_gradcam/gradcam_examples.png)
+
+The heatmap is the classifier weights × the last feature maps. For this model head that equals Grad-CAM (checked numerically in [`04_gradcam.ipynb`](ml/notebooks/04_gradcam.ipynb)), so the API can draw it from the ONNX output without PyTorch.
+
+**What the heatmaps tell us (limitation):** for meningioma they sit on the tumor. For glioma, pituitary and no-tumor scans they often cover the whole brain, and some light up the image corners. This public dataset mixes several sources, roughly one per class, so the model also learns the look of each source, not only the tumor. The 99% is a score on this dataset, not a promise for real hospital scans. More: [per class](ml/results/04_gradcam/gradcam_per_class.png), [on the mistakes](ml/results/04_gradcam/gradcam_errors.png).
+
 ## Data
 
 | Dataset | Used for |
