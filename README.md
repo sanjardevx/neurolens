@@ -24,13 +24,10 @@ MRI upload → quality check → classifier → Grad-CAM → segmentation → fe
 - **Transfer learning.** Pretrained backbones, strong augmentation, mixed precision, cosine learning rate, early stopping on macro-F1.
 - **Ensemble + TTA.** Two different models (small B0, larger B3) make different mistakes. Averaging them, plus a flipped copy of each image, cuts val errors by about a third.
 - **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
-- **Fast CPU serving.** Models are exported to ONNX and served by FastAPI on ONNX Runtime. No GPU needed in production.
-- **Safe reports.** The LLM sees only structured numbers (class, confidence, area, location), never the image. If the LLM fails, a template report is used. The provider is one `.env` setting.
-- **Out-of-distribution check.** Images that don't look like a brain MRI are rejected instead of classified.
 
 ## Results
 
-_Only measured numbers. Filled in from real runs._
+_Only measured numbers from real runs. `—` = not measured._
 
 | Model | Metric | Target | Test result |
 |---|---|---|---|
@@ -38,7 +35,7 @@ _Only measured numbers. Filled in from real runs._
 | Classifier | Macro-F1 | ≥ 95% | **99.0%** |
 | Segmenter | Dice | ≥ 0.85 | — |
 
-Final classifier: EfficientNet-B0 + B3 ensemble with TTA, measured once on 710 clean test images (7 errors), in full precision like the deployed model. [Test confusion matrix](ml/results/03_final/confusion_final_test.png).
+Final classifier: EfficientNet-B0 + B3 ensemble with TTA, measured once on 710 clean test images (7 errors), in full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png).
 
 **How the final model was picked** (validation split, 710 images, [`03_final_classifier.ipynb`](ml/notebooks/03_final_classifier.ipynb)):
 
@@ -56,7 +53,7 @@ Remaining errors are mostly glioma or pituitary scans predicted as meningioma. T
 
 ![Grad-CAM examples](ml/results/04_gradcam/gradcam_examples.png)
 
-The heatmap is the classifier weights × the last feature maps. For this model head that equals Grad-CAM (checked numerically in [`04_gradcam.ipynb`](ml/notebooks/04_gradcam.ipynb)), so the API can draw it from the ONNX output without PyTorch.
+The heatmap is the classifier weights × the last feature maps. For this model head that equals Grad-CAM (checked numerically in [`04_gradcam.ipynb`](ml/notebooks/04_gradcam.ipynb)), so it can be computed from an ONNX model's outputs, without PyTorch.
 
 **What the heatmaps tell us (limitation):** for meningioma they sit on the tumor. For glioma, pituitary and no-tumor scans they often cover the whole brain, and some light up the image corners. This public dataset mixes several sources, roughly one per class, so the model also learns the look of each source, not only the tumor. The 99% is a score on this dataset, not a promise for real hospital scans. More: [per class](ml/results/04_gradcam/gradcam_per_class.png), [on the mistakes](ml/results/04_gradcam/gradcam_errors.png).
 
@@ -95,13 +92,8 @@ Many images are the same scan saved again with other contrast or sharpening. In 
 ```
 ml/notebooks/   training notebooks (run on Kaggle GPU)
 ml/data/        splits.csv + data_report.json (no images in git)
-backend/        FastAPI + ONNX Runtime
-frontend/       Next.js dashboard
+ml/results/     metrics, confusion matrices, Grad-CAM figures
 ```
-
-## Status
-
-🚧 Week 2 of 6: classifier done (99.0% test accuracy). Next: Grad-CAM and ONNX export.
 
 ## License
 
