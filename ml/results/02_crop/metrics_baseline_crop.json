@@ -1,0 +1,31 @@
+{
+  "config": {
+    "preset": "baseline",
+    "crop": true,
+    "epochs": 30,
+    "weight_decay": 0.0001,
+    "num_workers": 4,
+    "seed": 42,
+    "pretrained": true,
+    "model": "efficientnet_b0",
+    "img_size": 224,
+    "batch_size": 32,
+    "lr": 0.0003,
+    "label_smoothing": 0.0,
+    "strong_aug": false,
+    "warmup_epochs": 0,
+    "patience": 6,
+    "tag": "baseline_crop",
+    "best_epoch": 16
+  },
+  "best_epoch": 16,
+  "val": {
+    "acc": 0.9775,
+    "macro_f1": 0.9774,
+    "errors": 16
+  },
+  "test": null,
+  "n_train": 3310,
+  "n_val": 710,
+  "n_test": 710
+}
