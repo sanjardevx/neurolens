@@ -12,7 +12,7 @@ MRI upload → quality check → classifier → Grad-CAM → segmentation → fe
 
 | Step | Model / tool | Output |
 |---|---|---|
-| Classify | EfficientNet-B0 + B3 ensemble (timm) | glioma · meningioma · pituitary · no tumor + confidence |
+| Classify | EfficientNet-B3 on brain-cropped scans (timm) | glioma · meningioma · pituitary · no tumor + confidence |
 | Explain | Grad-CAM | heatmap of where the model looked |
 | Segment | U-Net (segmentation_models_pytorch) | tumor mask + area |
 | Report | Ollama or LLM API, template fallback | short summary from structured features |
@@ -20,9 +20,10 @@ MRI upload → quality check → classifier → Grad-CAM → segmentation → fe
 ## Engineering highlights
 
 - **Leak-free data.** The public dataset has duplicate images, some in both train and test. They are found with MD5 + perceptual hashing and removed *before* training, so test scores are not inflated.
-- **Honest evaluation.** Models are tuned on validation only. The test split is run once, at the end.
+- **Honest evaluation.** Models are compared on validation only. The test split is opened only for a model already picked on val.
 - **Transfer learning.** Pretrained backbones, strong augmentation, mixed precision, cosine learning rate, early stopping on macro-F1.
-- **Ensemble + TTA.** Two different models (small B0, larger B3) make different mistakes. Averaging them, plus a flipped copy of each image, cuts val errors by about a third.
+- **Brain crop.** Every scan is cut to the head and padded to a square, so images from different sources have the same framing.
+- **Simple over complex.** Ten options were compared (two backbones, with and without crop, test-time flips, ensembles). One B3 on cropped scans tied the best two-model ensemble, so the lighter option won: one network, one pass, about half the compute (no second model, no flipped copy).
 - **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
 
 ## Results
@@ -31,31 +32,44 @@ _Only measured numbers from real runs. `—` = not measured._
 
 | Model | Metric | Target | Test result |
 |---|---|---|---|
-| Classifier | Accuracy | ≥ 95% | **99.0%** |
-| Classifier | Macro-F1 | ≥ 95% | **99.0%** |
+| Classifier | Accuracy | ≥ 95% | **99.4%** |
+| Classifier | Macro-F1 | ≥ 95% | **99.3%** |
 | Segmenter | Dice | ≥ 0.85 | — |
 
-Final classifier: EfficientNet-B0 + B3 ensemble with TTA, measured once on 710 clean test images (7 errors), in full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png).
+Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean test images, 4 errors, full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png).
+
+The test split was opened twice: first for the earlier B0 + B3 ensemble (99.0% accuracy, 7 errors, [results](ml/results/03_final_ensemble)), then for this model, which was picked on val *before* its test run.
 
 **How the final model was picked** (validation split, 710 images, [`03_final_classifier.ipynb`](ml/notebooks/03_final_classifier.ipynb)):
 
 | Option | Val accuracy | Val macro-F1 | Errors |
 |---|---|---|---|
-| **B0 + B3 ensemble + TTA** | **98.5%** | **98.4%** | **11** |
+| **B3 + brain crop** | **98.5%** | **98.5%** | **11** |
+| B0 + B3 ensemble + TTA | 98.5% | 98.4% | 11 |
+| B3 + brain crop + TTA | 98.0% | 98.0% | 14 |
+| B0 + B3 crop ensemble + TTA | 98.0% | 97.9% | 14 |
 | B0 + TTA | 97.8% | 97.6% | 16 |
 | B3 + TTA | 97.6% | 97.6% | 17 |
+| B0 + brain crop | 97.6% | 97.6% | 17 |
+| B0 + brain crop + TTA | 97.3% | 97.1% | 19 |
 | EfficientNet-B0, 224 px | 97.6% | 97.3% | 17 |
 | EfficientNet-B3, 384 px, strong augmentation | 97.5% | 97.4% | 18 |
 
-Remaining errors are mostly glioma or pituitary scans predicted as meningioma. Training runs: [`02_baseline`](ml/results/02_baseline), [`02_baseline_rerun`](ml/results/02_baseline_rerun) (used in the ensemble), [`02_strong`](ml/results/02_strong).
+TTA = the prediction is averaged with a left-right flipped copy. Training runs: [`02_crop`](ml/results/02_crop) (final), [`02_baseline_rerun`](ml/results/02_baseline_rerun), [`02_strong`](ml/results/02_strong), [`02_baseline`](ml/results/02_baseline).
 
 ## Explainability
 
-![Grad-CAM examples](ml/results/04_gradcam/gradcam_examples.png)
+![Grad-CAM examples](ml/results/04_gradcam_final/gradcam_examples_final.png)
 
 The heatmap is the classifier weights × the last feature maps. For this model head that equals Grad-CAM (checked numerically in [`04_gradcam.ipynb`](ml/notebooks/04_gradcam.ipynb)), so it can be computed from an ONNX model's outputs, without PyTorch.
 
-**What the heatmaps tell us (limitation):** for meningioma they sit on the tumor. For glioma, pituitary and no-tumor scans they often cover the whole brain, and some light up the image corners. This public dataset mixes several sources, roughly one per class, so the model also learns the look of each source, not only the tumor. The 99% is a score on this dataset, not a promise for real hospital scans. More: [per class](ml/results/04_gradcam/gradcam_per_class.png), [on the mistakes](ml/results/04_gradcam/gradcam_errors.png).
+**What the heatmaps tell us (limitation):**
+- **Meningioma and many glioma maps sit on the tumor.** Pituitary maps often light up the ventricles instead of the gland, and no-tumor maps are weak and spread out.
+- **Almost every map has a small hot spot in the top-left corner,** even on black padding. It looks like a network edge effect, not the tumor.
+- **The brain crop did not remove the shortcut.** It was added because this public dataset mixes several sources, roughly one per class, so a model can learn the look of each source. It kept the score, but the heat outside the head did not drop. Measured against a flat heatmap (= 1.0): the two-model ensemble went from 0.51 without crop to 0.50 with it, and the final single model scores 0.64, since one model's map is not smoothed by averaging.
+- **The 99% is a score on this dataset, not a promise for real hospital scans.**
+
+More: [per class](ml/results/04_gradcam_final/gradcam_per_class_final.png), [on the mistakes](ml/results/04_gradcam_final/gradcam_errors_final.png), [earlier ensemble without crop](ml/results/04_gradcam), [ensemble with crop](ml/results/04_gradcam_crop).
 
 ## Data
 

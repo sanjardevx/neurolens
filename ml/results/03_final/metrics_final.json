@@ -1,0 +1,41 @@
+{
+  "pick": "b3_crop",
+  "val": {
+    "acc": 0.9845,
+    "macro_f1": 0.985,
+    "errors": 11.0
+  },
+  "test": {
+    "acc": 0.9944,
+    "macro_f1": 0.9934,
+    "errors": 4
+  },
+  "models": {
+    "b0": [
+      "efficientnet_b0",
+      224,
+      "classifier_b0_baseline.pt",
+      false
+    ],
+    "b3": [
+      "efficientnet_b3",
+      384,
+      "classifier_b3_strong.pt",
+      false
+    ],
+    "b0_crop": [
+      "efficientnet_b0",
+      224,
+      "classifier_baseline_crop.pt",
+      true
+    ],
+    "b3_crop": [
+      "efficientnet_b3",
+      384,
+      "classifier_strong_crop.pt",
+      true
+    ]
+  },
+  "n_val": 710,
+  "n_test": 710
+}
