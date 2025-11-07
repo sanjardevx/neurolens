@@ -10,3 +10,8 @@ matplotlib
 torch
 timm
 albumentations
+
+# ONNX export (05)
+onnx
+onnxruntime
+onnxscript

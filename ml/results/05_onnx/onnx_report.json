@@ -1,0 +1,35 @@
+{
+  "model": "efficientnet_b3",
+  "checkpoint": "classifier_strong_crop.pt",
+  "onnx_file": "classifier.onnx",
+  "onnx_size_mb": 43.7,
+  "opset": 18,
+  "input": "image [batch, 3, 384, 384], RGB, brain crop + ImageNet normalize",
+  "outputs": {
+    "logits": "[batch, 4]",
+    "cams": "[batch, 4, 12, 12]"
+  },
+  "classes": [
+    "glioma",
+    "meningioma",
+    "notumor",
+    "pituitary"
+  ],
+  "check": {
+    "n_val": 710,
+    "max_logit_diff": 1.6033649444580078e-05,
+    "same_prediction": 710,
+    "pytorch_val_acc": 0.9845,
+    "pytorch_val_errors": 11,
+    "onnx_val_acc": 0.9845,
+    "onnx_val_errors": 11,
+    "min_cam_correlation": 0.9999999998512061,
+    "max_cam_rel_diff": 4.02685982408002e-05
+  },
+  "speed": {
+    "preprocess_ms": 2.5,
+    "onnx_cpu_ms": 52.5,
+    "pytorch_cpu_ms": 345.4,
+    "cpu_threads": 8
+  }
+}

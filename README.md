@@ -25,6 +25,7 @@ MRI upload → quality check → classifier → Grad-CAM → segmentation → fe
 - **Brain crop.** Every scan is cut to the head and padded to a square, so images from different sources have the same framing.
 - **Simple over complex.** Ten options were compared (two backbones, with and without crop, test-time flips, ensembles). One B3 on cropped scans tied the best two-model ensemble, so the lighter option won: one network, one pass, about half the compute (no second model, no flipped copy).
 - **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
+- **ONNX export.** The final model and its heatmap run in ONNX Runtime with numpy-only preprocessing, so serving needs no PyTorch. Checked on all 710 val images: same predictions, same heatmaps.
 
 ## Results
 
@@ -37,6 +38,8 @@ _Only measured numbers from real runs. `—` = not measured._
 | Segmenter | Dice | ≥ 0.85 | — |
 
 Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean test images, 4 errors, full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png).
+
+**ONNX** ([report](ml/results/05_onnx/onnx_report.json), [`05_onnx_export.ipynb`](ml/notebooks/05_onnx_export.ipynb)): 43.7 MB file, 710 / 710 val predictions identical to PyTorch (max logit difference 0.00002), about 53 ms per scan on a laptop CPU (Apple M3) vs 345 ms in PyTorch.
 
 The test split was opened twice: first for the earlier B0 + B3 ensemble (99.0% accuracy, 7 errors, [results](ml/results/03_final_ensemble)), then for this model, which was picked on val *before* its test run.
 
