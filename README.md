@@ -37,7 +37,7 @@ _Only measured numbers from real runs. `—` = not measured._
 | Classifier | Macro-F1 | ≥ 95% | **99.3%** |
 | Segmenter | Dice | ≥ 0.85 | — |
 
-Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean test images, 4 errors, full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png).
+Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean test images, 4 errors, full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png) · [Model card](ml/MODEL_CARD.md) (intended use, per-class scores, limitations).
 
 **ONNX** ([report](ml/results/05_onnx/onnx_report.json), [`05_onnx_export.ipynb`](ml/notebooks/05_onnx_export.ipynb)): 43.7 MB file, 710 / 710 val predictions identical to PyTorch (max logit difference 0.00002), about 53 ms per scan on a laptop CPU (Apple M3) vs 345 ms in PyTorch.
 
@@ -110,6 +110,7 @@ Many images are the same scan saved again with other contrast or sharpening. In 
 ml/notebooks/   training notebooks (run on Kaggle GPU)
 ml/data/        splits.csv + data_report.json (no images in git)
 ml/results/     metrics, confusion matrices, Grad-CAM figures
+ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 ```
 
 ## License
