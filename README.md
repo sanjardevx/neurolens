@@ -1,21 +1,23 @@
 # NeuroLens
 
-Brain tumor MRI analysis in one dashboard: **classify** the scan, **show where the model looked**, **outline the tumor**, and write a **plain-language report**.
+Brain tumor MRI analysis for doctors: **classify** the scan, **show where the model looked**, **segment the tumor in 3D** and measure it, and let a **doctor review and approve** the result before any report leaves the system.
 
 > ⚠️ Research and portfolio project, **not a medical device**. Results are not a diagnosis. Trained only on public datasets.
 
 ## How it works
 
 ```
-MRI upload → quality check → classifier → Grad-CAM → segmentation → features → report → dashboard
+doctor login → new case (anonymous ID) → upload 3D MRI → quality check
+→ classifier + Grad-CAM → 3D segmentation + volume → doctor review (approve / edit / reject) → approved PDF
 ```
 
 | Step | Model / tool | Output |
 |---|---|---|
 | Classify | EfficientNet-B3 on brain-cropped scans (timm) | glioma · meningioma · pituitary · no tumor + confidence |
 | Explain | Grad-CAM | heatmap of where the model looked |
-| Segment | U-Net (segmentation_models_pytorch) | tumor mask + area |
-| Report | Ollama or LLM API, template fallback | short summary from structured features |
+| Segment | 3D U-Net / SegResNet (MONAI), BraTS | edema · tumor core · enhancing tumor masks + volume in cm³ |
+| Review | 3D viewer (NiiVue) | doctor approves, edits or rejects; every action logged |
+| Report | template, optional LLM draft (Ollama or LLM API) | doctor-approved PDF from structured features |
 
 ## Engineering highlights
 
@@ -35,7 +37,9 @@ _Only measured numbers from real runs. `—` = not measured._
 |---|---|---|---|
 | Classifier | Accuracy | ≥ 95% | **99.4%** |
 | Classifier | Macro-F1 | ≥ 95% | **99.3%** |
-| Segmenter | Dice | ≥ 0.85 | — |
+| 3D segmenter | Dice, whole tumor | ≥ 0.85 | — |
+| 3D segmenter | Dice, tumor core | ≥ 0.75 | — |
+| 3D segmenter | Dice, enhancing tumor | ≥ 0.70 | — |
 
 Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean test images, 4 errors, full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png) · [Model card](ml/MODEL_CARD.md) (intended use, per-class scores, limitations).
 
@@ -79,7 +83,7 @@ More: [per class](ml/results/04_gradcam_final/gradcam_per_class_final.png), [on 
 | Dataset | Used for |
 |---|---|
 | [Brain Tumor MRI Dataset](https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset) | classification, 4 classes |
-| [LGG MRI Segmentation](https://www.kaggle.com/datasets/mateuszbuda/lgg-mri-segmentation) | segmentation masks |
+| BraTS (Brain Tumor Segmentation challenge) | 3D segmentation: 4 MRI types (T1, T1ce, T2, FLAIR) + expert masks, split by patient |
 
 Cleaning is done in [`01_data_prep.ipynb`](ml/notebooks/01_data_prep.ipynb):
 
@@ -98,9 +102,9 @@ Many images are the same scan saved again with other contrast or sharpening. In 
 
 | Area | Tools |
 |---|---|
-| ML | PyTorch, timm, segmentation_models_pytorch, Albumentations |
+| ML | PyTorch, timm, MONAI, Albumentations |
 | Serving | ONNX Runtime, FastAPI, Docker |
-| Frontend | Next.js, Tailwind, shadcn/ui, Recharts |
+| Frontend | Next.js, Tailwind, shadcn/ui, Recharts, NiiVue |
 | Data & reports | Supabase, Ollama / LLM API |
 | CI / Deploy | GitHub Actions, Hugging Face Spaces, Vercel |
 
