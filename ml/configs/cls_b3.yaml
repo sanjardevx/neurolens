@@ -1,0 +1,16 @@
+# Final classifier: EfficientNet-B3 on brain-cropped scans (val 98.5%, test 99.4%)
+name: strong_crop            # output files: classifier_strong_crop.pt, metrics_strong_crop.json, ...
+model: efficientnet_b3
+pretrained: true
+img_size: 384
+crop: true                   # cut every scan to the head, pad to a square
+strong_aug: true
+batch_size: 24
+lr: 3.0e-4
+weight_decay: 1.0e-4
+label_smoothing: 0.1
+warmup_epochs: 1
+epochs: 30
+patience: 7                  # early stop on val macro-F1
+num_workers: 4
+seed: 42

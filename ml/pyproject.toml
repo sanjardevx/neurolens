@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurolens-ml"
+version = "0.1.0"
+description = "Training, evaluation and ONNX export for the NeuroLens brain tumor classifier"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pillow",
+    "opencv-python-headless",
+    "scikit-learn",
+    "matplotlib",
+    "pyyaml",
+    "torch",
+    "timm",
+    "albumentations",
+]
+
+[project.optional-dependencies]
+export = ["onnx", "onnxruntime", "onnxscript"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["neurolens_ml*"]

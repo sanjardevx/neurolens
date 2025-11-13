@@ -1,0 +1,16 @@
+# Smaller, faster baseline: EfficientNet-B0 on brain-cropped scans (val 97.6%)
+name: baseline_crop
+model: efficientnet_b0
+pretrained: true
+img_size: 224
+crop: true
+strong_aug: false
+batch_size: 32
+lr: 3.0e-4
+weight_decay: 1.0e-4
+label_smoothing: 0.0
+warmup_epochs: 0
+epochs: 30
+patience: 6
+num_workers: 4
+seed: 42

@@ -111,11 +111,24 @@ Many images are the same scan saved again with other contrast or sharpening. In 
 ## Project layout
 
 ```
+ml/neurolens_ml/  Python package: data, models, train / evaluate / export CLIs
+ml/configs/     one YAML file per training run
 ml/notebooks/   training notebooks (run on Kaggle GPU)
 ml/data/        splits.csv + data_report.json (no images in git)
 ml/results/     metrics, confusion matrices, Grad-CAM figures
 ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 ```
+
+## Run it
+
+```bash
+pip install -e "ml[export]"
+python -m neurolens_ml.train    --config ml/configs/cls_b3.yaml --data <dataset folder>
+python -m neurolens_ml.evaluate --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
+python -m neurolens_ml.export   --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
+```
+
+`evaluate` uses val by default; `--split test` is for the final model only. On Kaggle the dataset and `splits.csv` are found automatically.
 
 ## License
 
