@@ -26,3 +26,6 @@ dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 include = ["neurolens_ml*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
