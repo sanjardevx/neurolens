@@ -1,0 +1,30 @@
+{
+  "config": {
+    "name": "strong_crop",
+    "model": "efficientnet_b3",
+    "pretrained": true,
+    "img_size": 384,
+    "crop": true,
+    "strong_aug": true,
+    "batch_size": 24,
+    "lr": 0.0003,
+    "weight_decay": 0.0001,
+    "label_smoothing": 0.1,
+    "warmup_epochs": 1,
+    "epochs": 30,
+    "patience": 7,
+    "num_workers": 4,
+    "seed": 42
+  },
+  "best_epoch": 19,
+  "val": {
+    "acc": 0.9887,
+    "macro_f1": 0.9886,
+    "errors": 8
+  },
+  "test": null,
+  "n_train": 3310,
+  "n_val": 710,
+  "n_test": 710,
+  "repo_commit": "06975cd"
+}

@@ -42,7 +42,7 @@ No tumor is the smallest class (573 unique scans of 1,800 files), so the loss us
 
 ## Training
 
-[`02_classifier.ipynb`](notebooks/02_classifier.ipynb), preset `strong`, on a Kaggle T4 GPU.
+On a Kaggle T4 GPU, with `python -m neurolens_ml.train --config configs/cls_b3.yaml` (runner: [`02_classifier.ipynb`](notebooks/02_classifier.ipynb)).
 
 - **Optimizer:** AdamW (lr 3e-4, weight decay 1e-4), batch 24.
 - **Schedule:** 1 warmup epoch, then cosine.
@@ -50,7 +50,7 @@ No tumor is the smallest class (573 unique scans of 1,800 files), so the loss us
 - **Precision:** mixed precision on the GPU; the loss is computed in fp32.
 - **Augmentation:** flip, affine (scale, shift, rotate ±20°), brightness/contrast, gamma, Gaussian blur, noise, coarse dropout.
 - **Stopping:** early stopping on val macro-F1 (patience 7). The best epoch was 15 of 22.
-- **Reproducibility:** seed 42.
+- **Reproducibility:** seed 42. A second run of the same config gave val 98.9% (8 errors) against 98.5% (11) for the first ([rerun](results/02_cli_rerun)). GPU runs differ by a few images, so gaps under ~0.5% between options are noise. The first run stays the final model; the test split was not opened for the rerun.
 
 ## Evaluation
 
@@ -103,6 +103,7 @@ Each heatmap is the classifier weights × the last feature maps. For this model 
 | `models/classifier_strong_crop.pt` | PyTorch weights (not in git) |
 | `models/classifier.onnx` | serving model (not in git) |
 | [`results/02_crop/`](results/02_crop) | training curves, val confusion matrix, val errors |
+| [`results/02_cli_rerun/`](results/02_cli_rerun) | second training run of the same config (val only) |
 | [`results/03_final/`](results/03_final) | final val + test metrics, test confusion matrix |
 | [`results/04_gradcam_final/`](results/04_gradcam_final) | heatmaps of the final model |
 | [`results/05_onnx/`](results/05_onnx) | ONNX check and speed |
