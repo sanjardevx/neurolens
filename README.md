@@ -85,7 +85,15 @@ More: [per class](ml/results/04_gradcam_final/gradcam_per_class_final.png), [on 
 | [Brain Tumor MRI Dataset](https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset) | classification, 4 classes |
 | [BraTS 2021, Task 1](https://www.kaggle.com/datasets/dschettler8845/brats-2021-task1) | 3D segmentation: 4 MRI types (T1, T1ce, T2, FLAIR) + expert masks, split by patient |
 
-BraTS 2021 is shared under [CC BY 4.0](https://doi.org/10.7937/jc8x-9874). Please cite Baid et al. 2021 ([arXiv:2107.02314](https://arxiv.org/abs/2107.02314)), Menze et al. 2015 and Bakas et al. 2017. It is checked in [`06_brats_data.ipynb`](ml/notebooks/06_brats_data.ipynb).
+BraTS 2021 is shared under [CC BY 4.0](https://doi.org/10.7937/jc8x-9874). Please cite Baid et al. 2021 ([arXiv:2107.02314](https://arxiv.org/abs/2107.02314)), Menze et al. 2015 and Bakas et al. 2017. It is checked in [`06_brats_data.ipynb`](ml/notebooks/06_brats_data.ipynb) ([report](ml/data/brats_report.json)):
+
+| BraTS check | Value |
+|---|---|
+| Patients with all 4 MRI types + mask | 1,251 |
+| Volume size and voxel | 240 × 240 × 155, 1 mm (all cases) |
+| Mask labels | 0 background, 1 necrotic core, 2 edema, 4 enhancing (no others) |
+| Whole tumor volume, median (range) | 89 cm³ (3 – 362) |
+| Cases with no enhancing part | 33 |
 
 Cleaning is done in [`01_data_prep.ipynb`](ml/notebooks/01_data_prep.ipynb):
 
@@ -116,7 +124,7 @@ Many images are the same scan saved again with other contrast or sharpening. In 
 ml/neurolens_ml/  Python package: data, models, train / evaluate / export CLIs
 ml/configs/     one YAML file per training run
 ml/notebooks/   training notebooks (run on Kaggle GPU)
-ml/data/        splits.csv + data_report.json (no images in git)
+ml/data/        data splits and data reports (no images in git)
 ml/results/     metrics, confusion matrices, Grad-CAM figures
 ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 ```

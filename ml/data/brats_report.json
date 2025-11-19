@@ -1,0 +1,75 @@
+{
+  "n_cases": 1251,
+  "shapes": {
+    "240x240x155": 1251
+  },
+  "spacings_mm": {
+    "1x1x1": 1251
+  },
+  "cases_with_mismatched_shapes": 0,
+  "label_values": [
+    0,
+    1,
+    2,
+    4
+  ],
+  "unknown_labels": [],
+  "cases_without_tumor": 0,
+  "cases_without_enhancing": 33,
+  "volume_cm3": {
+    "tc": {
+      "count": 1251.0,
+      "mean": 35.8,
+      "std": 30.0,
+      "min": 0.0,
+      "25%": 12.1,
+      "50%": 28.3,
+      "75%": 51.7,
+      "max": 190.2
+    },
+    "wt": {
+      "count": 1251.0,
+      "mean": 96.0,
+      "std": 57.3,
+      "min": 2.8,
+      "25%": 48.3,
+      "50%": 89.3,
+      "75%": 136.7,
+      "max": 361.8
+    },
+    "et": {
+      "count": 1251.0,
+      "mean": 21.4,
+      "std": 18.1,
+      "min": 0.0,
+      "25%": 7.4,
+      "50%": 17.3,
+      "75%": 31.4,
+      "max": 111.2
+    }
+  },
+  "monai_check": {
+    "id": "BraTS2021_00000",
+    "image_shape": [
+      4,
+      240,
+      240,
+      155
+    ],
+    "label_shape": [
+      3,
+      240,
+      240,
+      155
+    ],
+    "image_dtype": "torch.float32",
+    "intensity_max": [
+      2934.0,
+      2023.0,
+      12343.0,
+      2421.0
+    ],
+    "regions_nest": true
+  },
+  "repo_commit": "da760fd"
+}
