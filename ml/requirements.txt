@@ -15,3 +15,7 @@ albumentations
 onnx
 onnxruntime
 onnxscript
+
+# 3D segmentation (BraTS)
+monai
+nibabel

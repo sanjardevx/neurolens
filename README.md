@@ -83,7 +83,9 @@ More: [per class](ml/results/04_gradcam_final/gradcam_per_class_final.png), [on 
 | Dataset | Used for |
 |---|---|
 | [Brain Tumor MRI Dataset](https://www.kaggle.com/datasets/masoudnickparvar/brain-tumor-mri-dataset) | classification, 4 classes |
-| BraTS (Brain Tumor Segmentation challenge) | 3D segmentation: 4 MRI types (T1, T1ce, T2, FLAIR) + expert masks, split by patient |
+| [BraTS 2021, Task 1](https://www.kaggle.com/datasets/dschettler8845/brats-2021-task1) | 3D segmentation: 4 MRI types (T1, T1ce, T2, FLAIR) + expert masks, split by patient |
+
+BraTS 2021 is shared under [CC BY 4.0](https://doi.org/10.7937/jc8x-9874). Please cite Baid et al. 2021 ([arXiv:2107.02314](https://arxiv.org/abs/2107.02314)), Menze et al. 2015 and Bakas et al. 2017. It is checked in [`06_brats_data.ipynb`](ml/notebooks/06_brats_data.ipynb).
 
 Cleaning is done in [`01_data_prep.ipynb`](ml/notebooks/01_data_prep.ipynb):
 
@@ -122,11 +124,12 @@ ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 ## Run it
 
 ```bash
-pip install -e "ml[export,dev]"
-pytest ml                       # leak-free splits, crop, model outputs, a tiny training run
+pip install -e "ml[export,dev,seg]"
+pytest ml                       # leak-free splits, crop, model outputs, a tiny training run, BraTS loading
 python -m neurolens_ml.train    --config ml/configs/cls_b3.yaml --data <dataset folder>
 python -m neurolens_ml.evaluate --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
 python -m neurolens_ml.export   --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
+python -m neurolens_ml.prep_brats --data <BraTS folder>   # check the 3D data: cases, labels, tumor volumes
 ```
 
 `evaluate` uses val by default; `--split test` is for the final model only. On Kaggle, [`02_classifier.ipynb`](ml/notebooks/02_classifier.ipynb) clones the repo and runs the same `train` command on a GPU.

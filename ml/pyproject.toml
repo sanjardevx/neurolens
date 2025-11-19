@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 export = ["onnx", "onnxruntime", "onnxscript"]
+seg = ["monai", "nibabel"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
