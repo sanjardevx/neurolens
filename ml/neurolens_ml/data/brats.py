@@ -8,7 +8,9 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+import pandas as pd
 from monai import transforms as T
+from sklearn.model_selection import train_test_split
 
 MODALITIES = ("flair", "t1", "t1ce", "t2")
 REGIONS = {"tc": (1, 4), "wt": (1, 2, 4), "et": (4,)}  # tumor core, whole tumor, enhancing tumor
@@ -71,6 +73,20 @@ def val_transforms() -> T.Compose:
         # MRI intensities have no fixed unit, so each modality is scaled by its own brain voxels (background stays 0)
         T.NormalizeIntensityd(keys="image", nonzero=True, channel_wise=True),
     ])
+
+
+def make_splits(cases: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
+    """70 / 15 / 15 by patient, stratified by tumor size so each split has small and large tumors.
+
+    Cases with no enhancing tumor get their own group: the enhancing-tumor Dice treats them differently.
+    """
+    strata = pd.qcut(cases.wt_cm3, 4, labels=False).astype(str)
+    strata[cases.et_cm3 == 0] = "no_et"
+    train, rest = train_test_split(cases.id, test_size=0.30, stratify=strata, random_state=seed)
+    val, test = train_test_split(rest, test_size=0.50, stratify=strata[rest.index], random_state=seed)
+    split = pd.Series("train", index=cases.index)
+    split[val.index], split[test.index] = "val", "test"
+    return cases[["id", "wt_cm3", "tc_cm3", "et_cm3"]].assign(split=split)[["id", "split", "wt_cm3", "tc_cm3", "et_cm3"]]
 
 
 def case_stats(case: dict) -> dict:

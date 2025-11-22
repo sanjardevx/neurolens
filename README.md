@@ -94,6 +94,7 @@ BraTS 2021 is shared under [CC BY 4.0](https://doi.org/10.7937/jc8x-9874). Pleas
 | Mask labels | 0 background, 1 necrotic core, 2 edema, 4 enhancing (no others) |
 | Whole tumor volume, median (range) | 89 cm³ (3 – 362) |
 | Cases with no enhancing part | 33 |
+| Split by patient (train / val / test) | 875 / 188 / 188, stratified by tumor size ([`brats_splits.csv`](ml/data/brats_splits.csv)) |
 
 Cleaning is done in [`01_data_prep.ipynb`](ml/notebooks/01_data_prep.ipynb):
 
@@ -138,6 +139,7 @@ python -m neurolens_ml.train    --config ml/configs/cls_b3.yaml --data <dataset 
 python -m neurolens_ml.evaluate --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
 python -m neurolens_ml.export   --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
 python -m neurolens_ml.prep_brats --data <BraTS folder>   # check the 3D data: cases, labels, tumor volumes
+python -m neurolens_ml.split_brats                        # patient split from brats_cases.csv, no scans needed
 ```
 
 `evaluate` uses val by default; `--split test` is for the final model only. On Kaggle, [`02_classifier.ipynb`](ml/notebooks/02_classifier.ipynb) clones the repo and runs the same `train` command on a GPU.

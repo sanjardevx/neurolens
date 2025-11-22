@@ -1,7 +1,9 @@
 import json
 import tarfile
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 pytest.importorskip("monai")
@@ -9,11 +11,13 @@ nib = pytest.importorskip("nibabel")
 
 from neurolens_ml import prep_brats  # noqa: E402
 from neurolens_ml.data.brats import (  # noqa: E402
-    MODALITIES, case_stats, extract_tars, find_cases, load_transforms, train_transforms, val_transforms,
+    MODALITIES, case_stats, extract_tars, find_cases, load_transforms, make_splits, train_transforms, val_transforms,
 )
 
 SHAPE = (24, 20, 16)
 BRAIN = (slice(2, 22), slice(2, 18), slice(2, 14))  # skull-stripped: zeros outside, 20 x 16 x 12 brain
+SPLITS = Path(__file__).resolve().parents[1] / "data" / "brats_splits.csv"
+CASES = Path(__file__).resolve().parents[1] / "data" / "brats_cases.csv"
 
 
 def fake_mask() -> np.ndarray:
@@ -105,3 +109,22 @@ def test_train_transforms_give_random_patches(brats_root):
     assert (et <= tc).all() and (tc <= wt).all()  # flips move image and mask together
     big = train_transforms(patch=(32, 32, 32))(case)  # bigger than the brain: padded
     assert tuple(big["image"].shape) == (4, 32, 32, 32)
+
+
+def test_make_splits_stratified_and_repeatable():
+    rng = np.random.default_rng(0)
+    cases = pd.DataFrame({"id": [f"c{i}" for i in range(200)], "wt_cm3": rng.uniform(3, 300, 200),
+                          "tc_cm3": 10.0, "et_cm3": np.where(np.arange(200) < 20, 0.0, 5.0)})
+    s = make_splits(cases)
+    assert s.split.value_counts().to_dict() == {"train": 140, "val": 30, "test": 30}
+    assert s[s.et_cm3 == 0].split.value_counts().to_dict() == {"train": 14, "val": 3, "test": 3}
+    assert s.equals(make_splits(cases))
+
+
+def test_committed_brats_splits_are_by_patient():
+    splits, cases = pd.read_csv(SPLITS), pd.read_csv(CASES)
+    assert not splits.id.duplicated().any()
+    assert set(splits.id) == set(cases.id)
+    share = splits.split.value_counts(normalize=True)
+    assert share["train"] == pytest.approx(0.70, abs=0.01)
+    assert share["val"] == pytest.approx(0.15, abs=0.01) and share["test"] == pytest.approx(0.15, abs=0.01)
