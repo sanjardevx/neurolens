@@ -8,9 +8,12 @@ pytest.importorskip("monai")
 nib = pytest.importorskip("nibabel")
 
 from neurolens_ml import prep_brats  # noqa: E402
-from neurolens_ml.data.brats import MODALITIES, case_stats, extract_tars, find_cases, load_transforms  # noqa: E402
+from neurolens_ml.data.brats import (  # noqa: E402
+    MODALITIES, case_stats, extract_tars, find_cases, load_transforms, train_transforms, val_transforms,
+)
 
 SHAPE = (24, 20, 16)
+BRAIN = (slice(2, 22), slice(2, 18), slice(2, 14))  # skull-stripped: zeros outside, 20 x 16 x 12 brain
 
 
 def fake_mask() -> np.ndarray:
@@ -28,7 +31,9 @@ def write_case(root, case_id: str, skip: str | None = None) -> None:
     rng = np.random.default_rng(0)
     for m in MODALITIES:
         if m != skip:
-            nib.save(nib.Nifti1Image(rng.random(SHAPE, np.float32) * 1000, np.eye(4)), folder / f"{case_id}_{m}.nii.gz")
+            img = np.zeros(SHAPE, np.float32)
+            img[BRAIN] = 100 + rng.random(img[BRAIN].shape, np.float32) * 1000
+            nib.save(nib.Nifti1Image(img, np.eye(4)), folder / f"{case_id}_{m}.nii.gz")
     nib.save(nib.Nifti1Image(fake_mask(), np.eye(4)), folder / f"{case_id}_seg.nii.gz")
 
 
@@ -79,3 +84,24 @@ def test_prep_cli_writes_report(brats_root, tmp_path):
     saved = json.loads((tmp_path / "out" / "brats_report.json").read_text())
     assert saved["label_values"] == [0, 1, 2, 4]
     assert (tmp_path / "out" / "brats_cases.csv").exists()
+
+
+def test_val_transforms_crop_brain_and_normalize(brats_root):
+    d = val_transforms()(find_cases(brats_root)[0])
+    image, label = d["image"], d["label"]
+    assert tuple(image.shape) == (4, 20, 16, 12)  # background cut, brain kept
+    assert int(label[1].sum()) == 1536  # no tumor voxel lost
+    for channel in image:
+        assert abs(float(channel.mean())) < 1e-3 and abs(float(channel.std()) - 1) < 0.01
+
+
+def test_train_transforms_give_random_patches(brats_root):
+    case = find_cases(brats_root)[0]
+    tf = train_transforms(patch=(16, 16, 16))
+    tf.set_random_state(seed=0)
+    d = tf(case)
+    assert tuple(d["image"].shape) == (4, 16, 16, 16) and tuple(d["label"].shape) == (3, 16, 16, 16)
+    tc, wt, et = d["label"].bool()
+    assert (et <= tc).all() and (tc <= wt).all()  # flips move image and mask together
+    big = train_transforms(patch=(32, 32, 32))(case)  # bigger than the brain: padded
+    assert tuple(big["image"].shape) == (4, 32, 32, 32)

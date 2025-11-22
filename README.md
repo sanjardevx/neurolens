@@ -133,7 +133,7 @@ ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 
 ```bash
 pip install -e "ml[export,dev,seg]"
-pytest ml                       # leak-free splits, crop, model outputs, a tiny training run, BraTS loading
+pytest ml                       # leak-free splits, crop, model outputs, a tiny training run, BraTS loading and 3D transforms
 python -m neurolens_ml.train    --config ml/configs/cls_b3.yaml --data <dataset folder>
 python -m neurolens_ml.evaluate --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
 python -m neurolens_ml.export   --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt

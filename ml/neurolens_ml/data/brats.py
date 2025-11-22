@@ -13,6 +13,7 @@ from monai import transforms as T
 MODALITIES = ("flair", "t1", "t1ce", "t2")
 REGIONS = {"tc": (1, 4), "wt": (1, 2, 4), "et": (4,)}  # tumor core, whole tumor, enhancing tumor
 KNOWN_LABELS = {0, 1, 2, 4}
+PATCH = (128, 128, 128)  # random training patch; fits a T4 with a 3D U-Net and still covers most of the brain
 
 
 def extract_tars(src: str | Path, dst: str | Path) -> Path:
@@ -48,6 +49,27 @@ def load_transforms() -> T.Compose:
         T.ConvertToMultiChannelBasedOnBratsClassesd(keys="label"),
         # Same orientation for every scan, so uploads from other scanners line up with training data
         T.Orientationd(keys=["image", "label"], axcodes="RAS", labels=None),
+    ])
+
+
+def train_transforms(patch: tuple[int, int, int] = PATCH) -> T.Compose:
+    """Brain crop, per-modality normalization, a random patch and flips on all 3 axes."""
+    return T.Compose([
+        *val_transforms().transforms,
+        T.SpatialPadd(keys=["image", "label"], spatial_size=patch),  # a small brain can be under 128 voxels on an axis
+        T.RandSpatialCropd(keys=["image", "label"], roi_size=patch, random_size=False),
+        *[T.RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=axis) for axis in range(3)],
+    ])
+
+
+def val_transforms() -> T.Compose:
+    """Whole brain, no randomness: val and test run sliding-window over it."""
+    return T.Compose([
+        *load_transforms().transforms,
+        # Cut the black background around the skull-stripped brain (about half of the 240x240x155 volume)
+        T.CropForegroundd(keys=["image", "label"], source_key="image", allow_smaller=True),
+        # MRI intensities have no fixed unit, so each modality is scaled by its own brain voxels (background stays 0)
+        T.NormalizeIntensityd(keys="image", nonzero=True, channel_wise=True),
     ])
 
 
