@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("monai")
 nib = pytest.importorskip("nibabel")
 
-from neurolens_ml import prep_brats  # noqa: E402
+from neurolens_ml import plot_brats, prep_brats  # noqa: E402
 from neurolens_ml.data.brats import (  # noqa: E402
     MODALITIES, case_stats, extract_tars, find_cases, load_transforms, make_splits, train_transforms, val_transforms,
 )
@@ -128,3 +128,19 @@ def test_committed_brats_splits_are_by_patient():
     share = splits.split.value_counts(normalize=True)
     assert share["train"] == pytest.approx(0.70, abs=0.01)
     assert share["val"] == pytest.approx(0.15, abs=0.01) and share["test"] == pytest.approx(0.15, abs=0.01)
+
+
+def test_pick_cases_spans_tumor_sizes():
+    cases = pd.DataFrame({"id": list("abcdefghi"), "wt_cm3": [5, 90, 10, 300, 50, 70, 120, 200, 30],
+                          "et_cm3": [1, 1, 1, 1, 0, 1, 1, 1, 1]})
+    assert plot_brats.pick_cases(cases) == ["a", "i", "f", "g", "d", "e"]  # 5, 30, 70, 120, 300 cm³ + the no-ET case
+
+
+def test_plot_cli_writes_figures(brats_root, tmp_path):
+    cases_csv = tmp_path / "cases.csv"
+    pd.DataFrame([case_stats(c) for c in find_cases(brats_root)]).to_csv(cases_csv, index=False)
+    out = tmp_path / "plots"
+    checks = plot_brats.main(["--data", str(brats_root), "--cases", str(cases_csv), "--out", str(out)])
+    assert (out / "brats_slices.png").exists() and (out / "brats_patch.png").exists()
+    assert [c["tumor_inside_brain"] for c in checks["slices"]] == [1.0, 1.0]
+    assert checks["patch"]["raw"] == checks["patch"]["training patch"] == 1.0
