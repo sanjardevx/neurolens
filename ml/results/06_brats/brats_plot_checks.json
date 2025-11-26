@@ -1,0 +1,40 @@
+{
+  "slices": [
+    {
+      "id": "BraTS2021_01628",
+      "slice": 48,
+      "tumor_inside_brain": 1.0
+    },
+    {
+      "id": "BraTS2021_00334",
+      "slice": 77,
+      "tumor_inside_brain": 1.0
+    },
+    {
+      "id": "BraTS2021_00383",
+      "slice": 99,
+      "tumor_inside_brain": 1.0
+    },
+    {
+      "id": "BraTS2021_00207",
+      "slice": 97,
+      "tumor_inside_brain": 1.0
+    },
+    {
+      "id": "BraTS2021_01533",
+      "slice": 89,
+      "tumor_inside_brain": 1.0
+    },
+    {
+      "id": "BraTS2021_01637",
+      "slice": 51,
+      "tumor_inside_brain": 1.0
+    }
+  ],
+  "patch": {
+    "id": "BraTS2021_00383",
+    "raw": 1.0,
+    "brain crop + normalize": 1.0,
+    "training patch": 1.0
+  }
+}
