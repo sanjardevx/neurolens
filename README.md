@@ -135,13 +135,14 @@ ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 
 ```bash
 pip install -e "ml[export,dev,seg]"
-pytest ml                       # leak-free splits, crop, model outputs, a tiny training run, BraTS loading and 3D transforms
+pytest ml                       # leak-free splits, crop, model outputs, tiny 2D and 3D training runs, BraTS loading and 3D transforms
 python -m neurolens_ml.train    --config ml/configs/cls_b3.yaml --data <dataset folder>
 python -m neurolens_ml.evaluate --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
 python -m neurolens_ml.export   --config ml/configs/cls_b3.yaml --checkpoint outputs/classifier_strong_crop.pt
 python -m neurolens_ml.prep_brats --data <BraTS folder>   # check the 3D data: cases, labels, tumor volumes
 python -m neurolens_ml.split_brats                        # patient split from brats_cases.csv, no scans needed
 python -m neurolens_ml.plot_brats  --data <BraTS folder>   # slices with the expert mask on top
+python -m neurolens_ml.train_seg  --config ml/configs/seg_segresnet.yaml --data <BraTS folder>
 ```
 
 `evaluate` uses val by default; `--split test` is for the final model only. On Kaggle, [`02_classifier.ipynb`](ml/notebooks/02_classifier.ipynb) clones the repo and runs the same `train` command on a GPU.

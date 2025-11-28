@@ -11,43 +11,13 @@ nib = pytest.importorskip("nibabel")
 
 from neurolens_ml import plot_brats, prep_brats  # noqa: E402
 from neurolens_ml.data.brats import (  # noqa: E402
-    MODALITIES, case_stats, extract_tars, find_cases, load_transforms, make_splits, train_transforms, val_transforms,
+    case_stats, extract_tars, find_cases, load_transforms, make_splits, train_transforms, val_transforms,
 )
 
-SHAPE = (24, 20, 16)
-BRAIN = (slice(2, 22), slice(2, 18), slice(2, 14))  # skull-stripped: zeros outside, 20 x 16 x 12 brain
+from .helpers import SHAPE  # noqa: E402
+
 SPLITS = Path(__file__).resolve().parents[1] / "data" / "brats_splits.csv"
 CASES = Path(__file__).resolve().parents[1] / "data" / "brats_cases.csv"
-
-
-def fake_mask() -> np.ndarray:
-    """Edema around a core around an enhancing part, like a real BraTS mask."""
-    m = np.zeros(SHAPE, np.uint8)
-    m[4:20, 4:16, 4:12] = 2  # 16*12*8 = 1536 voxels
-    m[8:16, 8:12, 6:10] = 1  # 8*4*4 = 128
-    m[10:14, 9:11, 7:9] = 4  # 4*2*2 = 16
-    return m
-
-
-def write_case(root, case_id: str, skip: str | None = None) -> None:
-    folder = root / case_id
-    folder.mkdir(parents=True)
-    rng = np.random.default_rng(0)
-    for m in MODALITIES:
-        if m != skip:
-            img = np.zeros(SHAPE, np.float32)
-            img[BRAIN] = 100 + rng.random(img[BRAIN].shape, np.float32) * 1000
-            nib.save(nib.Nifti1Image(img, np.eye(4)), folder / f"{case_id}_{m}.nii.gz")
-    nib.save(nib.Nifti1Image(fake_mask(), np.eye(4)), folder / f"{case_id}_seg.nii.gz")
-
-
-@pytest.fixture
-def brats_root(tmp_path):
-    root = tmp_path / "BraTS2021_Training_Data"
-    write_case(root, "BraTS2021_00000")
-    write_case(root, "BraTS2021_00002")
-    write_case(root, "BraTS2021_00003", skip="t2")  # incomplete case is ignored
-    return root
 
 
 def test_find_cases_keeps_only_complete_cases(brats_root):

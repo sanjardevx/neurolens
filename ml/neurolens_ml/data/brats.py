@@ -55,12 +55,15 @@ def load_transforms() -> T.Compose:
 
 
 def train_transforms(patch: tuple[int, int, int] = PATCH) -> T.Compose:
-    """Brain crop, per-modality normalization, a random patch and flips on all 3 axes."""
+    """Brain crop, per-modality normalization, a random patch, flips on all 3 axes and small intensity changes."""
     return T.Compose([
         *val_transforms().transforms,
         T.SpatialPadd(keys=["image", "label"], spatial_size=patch),  # a small brain can be under 128 voxels on an axis
         T.RandSpatialCropd(keys=["image", "label"], roi_size=patch, random_size=False),
         *[T.RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=axis) for axis in range(3)],
+        # Scanners differ in contrast: scale and shift each modality by up to 10% of its spread
+        T.RandScaleIntensityd(keys="image", factors=0.1, prob=1.0, channel_wise=True),
+        T.RandShiftIntensityd(keys="image", offsets=0.1, prob=1.0, channel_wise=True),
     ])
 
 

@@ -1,0 +1,17 @@
+# 3D tumor segmenter: SegResNet on BraTS 2021, 4 MRI types → TC / WT / ET masks
+name: segresnet              # output files: segmenter_segresnet.pt, metrics_seg_segresnet.json, ...
+init_filters: 16
+dropout: 0.2
+patch: 128                   # random 128³ training patches; val runs sliding windows of the same size
+batch_size: 2
+lr: 1.0e-4
+weight_decay: 1.0e-5
+epochs: 60                   # cosine decay to zero over this many epochs
+val_every: 2                 # sliding-window val on the whole brain is slow, so not every epoch
+patience: 8                  # early stop after this many val checks without a mean Dice gain
+sw_batch_size: 4
+sw_overlap: 0.5
+amp: true                    # mixed precision on the GPU
+num_workers: 4
+max_hours: 11.0              # stop cleanly before Kaggle's 12-hour session limit
+seed: 42

@@ -1,4 +1,4 @@
-"""Tiny fake dataset in the Kaggle layout, shared by the tests."""
+"""Tiny fake datasets shared by the tests: 2D slices in the Kaggle layout, and BraTS NIfTI cases."""
 from pathlib import Path
 
 import pandas as pd
@@ -7,7 +7,7 @@ from PIL import Image
 
 from neurolens_ml.config import CLASSES
 
-from .helpers import fake_slice
+from .helpers import fake_slice, write_case
 
 
 @pytest.fixture(scope="session")
@@ -24,3 +24,13 @@ def fake_data(tmp_path_factory) -> tuple[Path, Path]:
                 rows.append(dict(path=f"Training/{label}/{name}", label=label, split=split))
     pd.DataFrame(rows).to_csv(root / "splits.csv", index=False)
     return root / "data", root / "splits.csv"
+
+
+@pytest.fixture
+def brats_root(tmp_path) -> Path:
+    """2 complete fake BraTS cases + 1 missing its T2."""
+    root = tmp_path / "BraTS2021_Training_Data"
+    write_case(root, "BraTS2021_00000")
+    write_case(root, "BraTS2021_00002")
+    write_case(root, "BraTS2021_00003", skip="t2")  # incomplete case is ignored
+    return root
