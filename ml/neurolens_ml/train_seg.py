@@ -71,6 +71,7 @@ def save_curves(hist: pd.DataFrame, tag: str, path: Path) -> None:
 def train(cfg: dict, root: Path, splits_csv: Path, out: Path) -> dict:
     seed_everything(cfg["seed"])
     device = get_device()
+    torch.backends.cudnn.benchmark = True  # fixed 128³ inputs: let cuDNN pick the fastest 3D conv once
     name, patch = cfg["name"], (cfg["patch"],) * 3
     cases = split_cases(root, splits_csv)
     train_tf = train_transforms(patch)
