@@ -49,12 +49,14 @@ def test_train_seg_smoke_run(brats_root, tmp_path):
     pd.DataFrame({"id": ["BraTS2021_00000", "BraTS2021_00002"], "split": ["train", "val"]}).to_csv(splits, index=False)
     out = tmp_path / "out"
     metrics = train_seg.main(["--config", str(train_seg.DATA.parent / "configs" / "seg_segresnet.yaml"),
-                              "--data", str(brats_root), "--splits", str(splits), "--out", str(out), "--smoke"])
+                              "--data", str(brats_root), "--splits", str(splits), "--out", str(out), "--smoke",
+                              "--cache-dir", str(tmp_path / "cache")])
     assert metrics["test"] is None and metrics["n_train"] == 1 and metrics["n_val"] == 1
     assert set(metrics["val"]) == {"tc", "wt", "et", "mean"}
     for f in ["segmenter_segresnet.pt", "history_seg_segresnet.csv", "curves_seg_segresnet.png", "val_cases_seg_segresnet.csv"]:
         assert (out / f).exists()
     assert json.loads((out / "metrics_seg_segresnet.json").read_text())["epochs_run"] == 2
+    assert len(list((tmp_path / "cache").glob("*.pt"))) == 2  # each scan prepared once: 1 train + 1 val
 
 
 def test_missing_cases_fail_early(brats_root, tmp_path):
@@ -62,3 +64,14 @@ def test_missing_cases_fail_early(brats_root, tmp_path):
     pd.DataFrame({"id": ["BraTS2021_00000", "BraTS2021_09999"], "split": ["train", "val"]}).to_csv(splits, index=False)
     with pytest.raises(FileNotFoundError, match="1 cases"):
         train_seg.split_cases(brats_root, splits)
+
+
+def test_cache_gives_the_same_data(brats_root, tmp_path):
+    from neurolens_ml.data.brats import find_cases, val_transforms
+
+    case = find_cases(brats_root)[:1]
+    fresh = train_seg.make_dataset(case, val_transforms(), None)[0]
+    cached = train_seg.make_dataset(case, val_transforms(), tmp_path / "cache")
+    first, second = cached[0], cached[0]  # second read comes from disk
+    for key in ["image", "label"]:
+        assert torch.equal(train_seg.plain(fresh[key]), second[key]) and torch.equal(first[key], second[key])

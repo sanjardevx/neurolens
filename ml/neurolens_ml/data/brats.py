@@ -75,6 +75,8 @@ def val_transforms() -> T.Compose:
         T.CropForegroundd(keys=["image", "label"], source_key="image", allow_smaller=True),
         # MRI intensities have no fixed unit, so each modality is scaled by its own brain voxels (background stays 0)
         T.NormalizeIntensityd(keys="image", nonzero=True, channel_wise=True),
+        # Half the size in the disk cache; the training loop casts back to float32
+        T.CastToTyped(keys=["image", "label"], dtype=(np.float16, np.uint8)),
     ])
 
 

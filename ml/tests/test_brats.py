@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 pytest.importorskip("monai")
 nib = pytest.importorskip("nibabel")
@@ -65,7 +66,8 @@ def test_val_transforms_crop_brain_and_normalize(brats_root):
     image, label = d["image"], d["label"]
     assert tuple(image.shape) == (4, 20, 16, 12)  # background cut, brain kept
     assert int(label[1].sum()) == 1536  # no tumor voxel lost
-    for channel in image:
+    assert image.dtype == torch.float16  # half size in the disk cache
+    for channel in image.float():
         assert abs(float(channel.mean())) < 1e-3 and abs(float(channel.std()) - 1) < 0.01
 
 
