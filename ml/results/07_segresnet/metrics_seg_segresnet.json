@@ -1,0 +1,35 @@
+{
+  "config": {
+    "name": "segresnet",
+    "init_filters": 16,
+    "dropout": 0.2,
+    "patch": 128,
+    "batch_size": 2,
+    "lr": 0.0001,
+    "weight_decay": 1e-05,
+    "epochs": 60,
+    "val_every": 2,
+    "patience": 8,
+    "sw_batch_size": 4,
+    "sw_overlap": 0.5,
+    "amp": true,
+    "num_workers": 4,
+    "max_hours": 11.0,
+    "seed": 42
+  },
+  "best_epoch": 56,
+  "epochs_run": 60,
+  "hours": 4.79,
+  "val": {
+    "tc": 0.9168,
+    "wt": 0.9262,
+    "et": 0.8589,
+    "mean": 0.9006
+  },
+  "test": null,
+  "n_train": 875,
+  "n_val": 188,
+  "n_test": 188,
+  "repo_commit": "ea75565",
+  "gpu": "Tesla T4"
+}
