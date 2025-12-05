@@ -58,7 +58,8 @@ def plain(x: torch.Tensor) -> torch.Tensor:
 @torch.no_grad()
 def evaluate(model: torch.nn.Module, cases: list[dict], cfg: dict, device: torch.device,
              cache_dir: Path | None = None) -> pd.DataFrame:
-    """Sliding-window prediction on each whole brain; one row of region Dice per case."""
+    """Sliding-window prediction on each whole brain; one row per case with region Dice and voxel counts
+    (predicted and true; 1 voxel = 1 mm³ in BraTS)."""
     model.eval()
     loader = DataLoader(make_dataset(cases, val_transforms(), cache_dir), batch_size=1, num_workers=cfg["num_workers"])
     rows = []
@@ -66,8 +67,11 @@ def evaluate(model: torch.nn.Module, cases: list[dict], cfg: dict, device: torch
         with torch.autocast(device.type, enabled=cfg["amp"] and device.type == "cuda"):
             pred = predict_volume(model, plain(batch["image"]).to(device).float(), (cfg["patch"],) * 3,
                                   cfg["sw_batch_size"], cfg["sw_overlap"])
-        dice = region_dice(pred[0], plain(batch["label"][0]).to(device))
-        rows.append({"id": batch["id"][0], **dict(zip(REGION_NAMES, dice.tolist()))})
+        true = plain(batch["label"][0]).to(device).bool()
+        dice = region_dice(pred[0], true)
+        rows.append({"id": batch["id"][0], **dict(zip(REGION_NAMES, dice.tolist())),
+                     **{f"pred_{r}_voxels": int(pred[0, i].sum()) for i, r in enumerate(REGION_NAMES)},
+                     **{f"true_{r}_voxels": int(true[i].sum()) for i, r in enumerate(REGION_NAMES)}})
     return pd.DataFrame(rows)
 
 

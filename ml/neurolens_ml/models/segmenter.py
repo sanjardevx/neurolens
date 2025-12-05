@@ -44,3 +44,15 @@ def region_dice(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     inter = (pred & target).sum(1).float()
     total = pred.sum(1).float() + target.sum(1).float()
     return torch.where(total == 0, torch.ones_like(total), 2 * inter / total.clamp(min=1))
+
+
+def drop_small_et(pred: torch.Tensor, min_voxels: int) -> torch.Tensor:
+    """Clear the enhancing-tumor channel of [..., 3, H, W, D] masks when the model finds fewer than min_voxels of it.
+
+    Tiny ET blobs are mostly false alarms on tumors without an enhancing part; the core and whole-tumor masks stay.
+    The size limit is tuned on val (evaluate_seg).
+    """
+    pred = pred.clone()
+    small = pred[..., 2, :, :, :].flatten(-3).sum(-1) < min_voxels
+    pred[..., 2, :, :, :][small] = False
+    return pred

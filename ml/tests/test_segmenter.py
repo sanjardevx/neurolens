@@ -8,7 +8,9 @@ pytest.importorskip("monai")
 pytest.importorskip("nibabel")
 
 from neurolens_ml import train_seg  # noqa: E402
-from neurolens_ml.models.segmenter import DiceBCELoss, create_segmenter, predict_volume, region_dice  # noqa: E402
+from neurolens_ml.models.segmenter import (  # noqa: E402
+    DiceBCELoss, create_segmenter, drop_small_et, predict_volume, region_dice,
+)
 
 TINY = dict(init_filters=8, dropout=0.0)
 
@@ -75,3 +77,46 @@ def test_cache_gives_the_same_data(brats_root, tmp_path):
     first, second = cached[0], cached[0]  # second read comes from disk
     for key in ["image", "label"]:
         assert torch.equal(train_seg.plain(fresh[key]), second[key]) and torch.equal(first[key], second[key])
+
+
+def test_drop_small_et_clears_only_small_et():
+    pred = torch.zeros(2, 3, 4, 4, 4, dtype=torch.bool)
+    pred[:, :2, :2] = True  # TC and WT in both cases
+    pred[0, 2, 0, 0, :3] = True  # case 0: 3 ET voxels
+    pred[1, 2, :2] = True  # case 1: 32 ET voxels
+    out = drop_small_et(pred, min_voxels=10)
+    assert out[0, 2].sum() == 0 and out[1, 2].sum() == 32
+    assert torch.equal(out[:, :2], pred[:, :2])  # core and whole tumor untouched
+    assert torch.equal(drop_small_et(pred[0], 3), pred[0])  # single case, limit not reached
+
+
+def test_min_et_tuning_picks_the_best_limit_on_val():
+    from neurolens_ml.evaluate_seg import tune_min_et, with_min_et
+
+    cases = pd.DataFrame({"et": [0.0, 0.0, 0.9, 0.8], "pred_et_voxels": [40, 120, 5000, 90],
+                          "true_et_voxels": [0, 0, 6000, 150]})
+    assert with_min_et(cases, 100).tolist() == [1.0, 0.0, 0.9, 0.0]  # a real small ET is lost too
+    best, table = tune_min_et(cases)
+    assert best == 200 and table.val_et.max() == pytest.approx((1 + 1 + 0.9 + 0) / 4)  # both false alarms gone
+
+
+def test_evaluate_seg_val_then_test(brats_root, tmp_path):
+    from neurolens_ml import evaluate_seg
+
+    cfg = tmp_path / "tiny.yaml"
+    cfg.write_text("name: tiny\ninit_filters: 8\ndropout: 0.0\npatch: 32\nsw_batch_size: 1\nsw_overlap: 0.5\n"
+                   "amp: false\nnum_workers: 0\n")
+    ckpt = tmp_path / "segmenter_tiny.pt"
+    torch.save(create_segmenter(dict(init_filters=8, dropout=0.0)).state_dict(), ckpt)
+    splits = tmp_path / "splits.csv"
+    pd.DataFrame({"id": ["BraTS2021_00000", "BraTS2021_00002"], "split": ["val", "test"]}).to_csv(splits, index=False)
+    args = ["--config", str(cfg), "--checkpoint", str(ckpt), "--data", str(brats_root), "--splits", str(splits),
+            "--out", str(tmp_path / "out")]
+    with pytest.raises(FileNotFoundError, match="run --split val first"):
+        evaluate_seg.main([*args, "--split", "test"])
+    val = evaluate_seg.main(args)
+    assert val["min_et_voxels"] in evaluate_seg.MIN_ET_GRID and set(val["val"]) == {"tc", "wt", "et", "mean"}
+    test = evaluate_seg.main([*args, "--split", "test"])
+    assert test["n_test"] == 1 and test["min_et_voxels"] == val["min_et_voxels"]
+    per_case = pd.read_csv(tmp_path / "out" / "eval_seg_test_tiny.csv")
+    assert per_case.true_wt_voxels.tolist() == [1536]  # true volume counted on the cropped brain
