@@ -1,0 +1,49 @@
+{
+  "min_et_voxels": 50,
+  "tuning": [
+    {
+      "min_et_voxels": 0,
+      "val_et": 0.8589
+    },
+    {
+      "min_et_voxels": 50,
+      "val_et": 0.8642
+    },
+    {
+      "min_et_voxels": 100,
+      "val_et": 0.8622
+    },
+    {
+      "min_et_voxels": 200,
+      "val_et": 0.8556
+    },
+    {
+      "min_et_voxels": 300,
+      "val_et": 0.861
+    },
+    {
+      "min_et_voxels": 500,
+      "val_et": 0.8639
+    },
+    {
+      "min_et_voxels": 750,
+      "val_et": 0.8605
+    },
+    {
+      "min_et_voxels": 1000,
+      "val_et": 0.8592
+    }
+  ],
+  "val_raw": {
+    "tc": 0.9168,
+    "wt": 0.9262,
+    "et": 0.8589,
+    "mean": 0.9006
+  },
+  "val": {
+    "tc": 0.9168,
+    "wt": 0.9262,
+    "et": 0.8642,
+    "mean": 0.9024
+  }
+}

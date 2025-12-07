@@ -1,0 +1,18 @@
+{
+  "min_et_voxels": 50,
+  "test_raw": {
+    "tc": 0.9082,
+    "wt": 0.9286,
+    "et": 0.8554,
+    "mean": 0.8974
+  },
+  "test": {
+    "tc": 0.9082,
+    "wt": 0.9286,
+    "et": 0.8658,
+    "mean": 0.9009
+  },
+  "n_test": 188,
+  "checkpoint": "segmenter_segresnet.pt",
+  "repo_commit": "e80d22f"
+}
