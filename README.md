@@ -15,7 +15,7 @@ doctor login → new case (anonymous ID) → upload 3D MRI → quality check
 |---|---|---|
 | Classify | EfficientNet-B3 on brain-cropped scans (timm) | glioma · meningioma · pituitary · no tumor + confidence |
 | Explain | Grad-CAM | heatmap of where the model looked |
-| Segment | 3D SegResNet (MONAI), BraTS 2021 | edema · tumor core · enhancing tumor masks + volume in cm³ |
+| Segment | 3D SegResNet (MONAI), BraTS 2021 | edema · tumor core · enhancing tumor masks, volume in cm³ per part, side of the brain and a rough lobe |
 | Review | 3D viewer (NiiVue) | doctor approves, edits or rejects; every action logged |
 | Report | template, optional LLM draft (Ollama or LLM API) | doctor-approved PDF from structured features |
 
@@ -46,6 +46,8 @@ Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean tes
 **ONNX** ([report](ml/results/05_onnx/onnx_report.json), [`05_onnx_export.ipynb`](ml/notebooks/05_onnx_export.ipynb)): 43.7 MB file, 710 / 710 val predictions identical to PyTorch (max logit difference 0.00002), about 53 ms per scan on a laptop CPU (Apple M3) vs 345 ms in PyTorch.
 
 Final segmenter: SegResNet (MONAI, 4.7M parameters) on BraTS 2021, 188 test patients never used for training or tuning, Dice averaged per patient (a patient with no enhancing tumor scores 1 only if none is predicted). Trained 60 epochs in 4.8 h on one T4 GPU ([curves](ml/results/07_segresnet/curves_seg_segresnet.png)); val Dice 0.926 / 0.917 / 0.864. The enhancing score uses one rule picked on val before the single test run: predicted enhancing tumor under 50 mm³ is dropped (it is mostly a false alarm). Without it, test enhancing Dice is 0.855 ([test report](ml/results/08_seg_eval/metrics_seg_test_segresnet.json)). Median per-patient Dice: 0.948 whole tumor, 0.958 core, 0.924 enhancing; median whole-tumor volume error 3.6 cm³.
+
+Volumes use the scan's own voxel size (from the file header), so 3 mm slices or tilted scans are measured right. The side comes from the share of tumor right of the midline; the lobe is a position rule inside the brain box, not an atlas, and is shown to the doctor as an estimate ([`measure.py`](ml/neurolens_ml/measure.py)).
 
 The classifier test split was opened twice: first for the earlier B0 + B3 ensemble (99.0% accuracy, 7 errors, [results](ml/results/03_final_ensemble)), then for this model, which was picked on val *before* its test run.
 
