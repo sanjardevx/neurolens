@@ -1,0 +1,14 @@
+{
+  "onnx_mb": 19.2,
+  "window_max_logit_diff": 0.0014899075031280518,
+  "window_same_mask": 1.0,
+  "cpu_seconds_per_scan": 32.0,
+  "cases": 6,
+  "min_agreement_dice": 0.9997,
+  "onnx_val_dice": {
+    "tc": 0.9496,
+    "wt": 0.8946,
+    "et": 0.8921
+  },
+  "repo_commit": "a9f6624"
+}

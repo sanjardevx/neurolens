@@ -1,0 +1,7 @@
+id,onnx_seconds,agree_tc,agree_wt,agree_et,onnx_dice_tc,onnx_dice_wt,onnx_dice_et,side,lobe_estimate,whole_tumor_cm3,true_whole_tumor_cm3
+BraTS2021_00002,32.0,1.0,0.9999,1.0,0.9197,0.824,0.8357,left,frontal,137.71,190.59
+BraTS2021_00003,31.5,1.0,1.0,1.0,0.9805,0.9759,0.9472,left,parietal,97.39,99.24
+BraTS2021_00009,31.5,0.9997,0.9998,0.9997,0.9571,0.7186,0.9049,left,frontal,16.65,27.45
+BraTS2021_00018,31.2,1.0,1.0,0.9999,0.8995,0.9646,0.7799,left,parietal,153.5,160.2
+BraTS2021_00046,19.2,1.0,1.0,0.9999,0.9674,0.9704,0.9514,right,parietal,32.89,33.79
+BraTS2021_00048,44.3,1.0,0.9999,1.0,0.9737,0.9138,0.9333,left,temporal,76.74,84.68
