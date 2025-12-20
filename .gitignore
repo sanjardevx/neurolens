@@ -17,6 +17,7 @@ __pycache__/
 venv/
 .ipynb_checkpoints/
 outputs/
+*.db
 
 # data and model weights (too big for git; small CSV/JSON results are kept)
 ml/data/raw/
