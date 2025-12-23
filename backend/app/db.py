@@ -48,10 +48,11 @@ class Scan(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
-    file_format: Mapped[str] = mapped_column(String(16))  # dicom | nifti | jpg
-    storage_path: Mapped[str] = mapped_column(Text)
+    file_format: Mapped[str] = mapped_column(String(16))  # dicom | nifti | image
+    storage_path: Mapped[str] = mapped_column(Text)  # folder under the storage root
     qc_passed: Mapped[bool | None] = mapped_column(default=None)
     qc_reason: Mapped[str | None] = mapped_column(Text, default=None)
+    info: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)  # shape, voxel size, technical tags
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
     case: Mapped[Case] = relationship(back_populates="scans")

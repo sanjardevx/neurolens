@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     # Supabase Postgres in production; a local SQLite file for development and tests
     database_url: str = "sqlite:///./neurolens.db"
+    # Where de-identified scans and results are written (a mounted volume in Docker)
+    storage_dir: str = "./storage"
+    max_upload_mb: int = 500
 
 
 @lru_cache

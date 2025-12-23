@@ -41,8 +41,8 @@ ADMIN = auth(sub="admin-1", role="admin", email="admin@clinic.test")
 
 
 @pytest.fixture
-def client():
-    app = create_app("sqlite://")
+def client(tmp_path):
+    app = create_app("sqlite://", storage_dir=str(tmp_path / "storage"))
     verifier = LocalKeyVerifier(Settings(supabase_url=ISSUER_URL))
     app.dependency_overrides[get_verifier] = lambda: verifier
     with TestClient(app) as c:  # runs startup: creates the tables

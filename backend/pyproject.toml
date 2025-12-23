@@ -14,6 +14,11 @@ dependencies = [
     "psycopg[binary]",
     "pyjwt[crypto]",
     "pydantic-settings",
+    "python-multipart",
+    "numpy",
+    "nibabel",
+    "pydicom>=3",
+    "pillow",
 ]
 
 [project.optional-dependencies]
