@@ -6,9 +6,7 @@ import numpy as np
 import torch
 import yaml
 
-CLASSES = ["glioma", "meningioma", "notumor", "pituitary"]
-MEAN = (0.485, 0.456, 0.406)  # ImageNet stats, to match the pretrained backbones
-STD = (0.229, 0.224, 0.225)
+from .infer_cls import CLASSES, MEAN, STD  # noqa: F401  (defined torch-free for the API)
 KAGGLE_INPUT, KAGGLE_WORKING = Path("/kaggle/input"), Path("/kaggle/working")
 
 # Tiny run on fake data: checks the code path, not the model

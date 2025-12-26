@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     # Where de-identified scans and results are written (a mounted volume in Docker)
     storage_dir: str = "./storage"
     max_upload_mb: int = 500
+    # Folder with classifier.onnx and segmenter3d.onnx (not in git; exported by ml/ export commands)
+    model_dir: str = "./models"
 
 
 @lru_cache

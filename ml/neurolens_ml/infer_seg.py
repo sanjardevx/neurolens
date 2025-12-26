@@ -56,7 +56,7 @@ def window_starts(size: int, patch: int = PATCH, overlap: float = OVERLAP) -> li
 
 
 def sliding_window(volume: np.ndarray, run: Callable[[np.ndarray], np.ndarray], patch: int = PATCH,
-                   overlap: float = OVERLAP) -> np.ndarray:
+                   overlap: float = OVERLAP, progress: Callable[[float], None] | None = None) -> np.ndarray:
     """volume [4, X, Y, Z] → blended logits [3, X, Y, Z]; run maps [1, 4, p, p, p] → [1, 3, p, p, p].
     One window at a time: a batch of 4 windows needs more than 8 GB of RAM on CPU."""
     pads = [(max(patch - s, 0) // 2, max(patch - s, 0) - max(patch - s, 0) // 2) for s in volume.shape[1:]]
@@ -64,10 +64,13 @@ def sliding_window(volume: np.ndarray, run: Callable[[np.ndarray], np.ndarray], 
     weights = gaussian_weights(patch)
     logits = np.zeros((3, *vol.shape[1:]), np.float32)
     total = np.zeros(vol.shape[1:], np.float32)
-    for x, y, z in product(*(window_starts(s, patch, overlap) for s in vol.shape[1:])):
+    windows = list(product(*(window_starts(s, patch, overlap) for s in vol.shape[1:])))
+    for i, (x, y, z) in enumerate(windows, 1):
         win = (slice(x, x + patch), slice(y, y + patch), slice(z, z + patch))
         logits[(slice(None), *win)] += run(vol[(None, slice(None), *win)])[0] * weights
         total[win] += weights
+        if progress:
+            progress(i / len(windows))  # share of windows done, for the job status
     logits /= total
     return logits[(slice(None), *(slice(a, a + s) for (a, _), s in zip(pads, volume.shape[1:])))]
 
@@ -80,10 +83,11 @@ def drop_small_et(mask: np.ndarray, min_voxels: int = MIN_ET_VOXELS) -> np.ndarr
     return mask
 
 
-def segment(image: np.ndarray, run: Callable[[np.ndarray], np.ndarray], patch: int = PATCH) -> np.ndarray:
+def segment(image: np.ndarray, run: Callable[[np.ndarray], np.ndarray], patch: int = PATCH,
+            progress: Callable[[float], None] | None = None) -> np.ndarray:
     """RAS image [4, X, Y, Z] → region masks [3, X, Y, Z] (TC, WT, ET) on the same voxel grid."""
     box = brain_box(image)
-    logits = sliding_window(normalize(image[(slice(None), *box)]), run, patch)
+    logits = sliding_window(normalize(image[(slice(None), *box)]), run, patch, progress=progress)
     mask = np.zeros((3, *image.shape[1:]), bool)
     mask[(slice(None), *box)] = drop_small_et(logits > 0)  # sigmoid > 0.5
     return mask
@@ -97,3 +101,13 @@ def onnx_runner(path: str, threads: int | None = None) -> Callable[[np.ndarray],
         opts.intra_op_num_threads = threads
     session = ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
     return lambda x: session.run(None, {"image": x.astype(np.float32)})[0]
+
+
+def label_map(mask: np.ndarray) -> np.ndarray:
+    """TC / WT / ET masks → one BraTS label volume for viewers: 1 necrotic core, 2 edema, 4 enhancing."""
+    tc, wt, et = mask.astype(bool)
+    labels = np.zeros(wt.shape, np.uint8)
+    labels[wt] = 2
+    labels[tc] = 1
+    labels[et] = 4
+    return labels

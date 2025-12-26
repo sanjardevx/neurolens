@@ -37,3 +37,17 @@ def test_numpy_preprocess_matches_training_pipeline():
     got = preprocess(img, 64)[0]
     assert got.shape == (3, 64, 64) and got.dtype == np.float32
     assert np.abs(got - expected).max() < 1e-4
+
+
+def test_classify_matches_the_torch_model(wrapper):
+    from neurolens_ml.infer_cls import classify
+
+    img = rgb(fake_slice())
+    run = lambda x: tuple(t.detach().numpy() for t in wrapper(torch.from_numpy(x)))  # noqa: E731
+    out = classify(img, run, size=64)
+    with torch.no_grad():
+        logits, _ = wrapper(torch.from_numpy(preprocess(img, 64)))
+    probs = torch.softmax(logits[0], 0).numpy()
+    assert out["tumor_type"] == CLASSES[probs.argmax()] and abs(out["confidence"] - probs.max()) < 1e-4
+    assert abs(sum(out["probabilities"].values()) - 1) < 1e-3
+    assert out["gradcam"].shape == (64, 64, 3) and out["gradcam"].dtype == np.uint8

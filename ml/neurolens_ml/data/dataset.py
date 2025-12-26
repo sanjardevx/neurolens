@@ -10,7 +10,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
 from ..config import CLASSES, MEAN, STD
-from .crop import crop_brain
+from ..crop import crop_brain
 
 
 def load_rgb(path: str | Path) -> np.ndarray:
@@ -68,12 +68,3 @@ class MRIDataset(Dataset):
 def make_loader(frame: pd.DataFrame, data_dir: Path, tf: A.Compose, cfg: dict, shuffle: bool, pin: bool = False) -> DataLoader:
     return DataLoader(MRIDataset(frame, data_dir, tf, cfg["crop"]), batch_size=cfg["batch_size"], shuffle=shuffle,
                       num_workers=cfg["num_workers"], pin_memory=pin, drop_last=shuffle)
-
-
-def preprocess(img: np.ndarray, size: int, crop: bool = True) -> np.ndarray:
-    """Numpy-only version of the eval transform (for ONNX serving): RGB uint8 -> float32 [1, 3, size, size]."""
-    if crop:
-        img = crop_brain(img)
-    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_LINEAR)
-    x = (img.astype(np.float32) / 255.0 - np.array(MEAN, np.float32)) / np.array(STD, np.float32)
-    return np.ascontiguousarray(x.transpose(2, 0, 1)[None])

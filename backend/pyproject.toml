@@ -19,10 +19,13 @@ dependencies = [
     "nibabel",
     "pydicom>=3",
     "pillow",
+    "opencv-python-headless",
+    "onnxruntime",
+    # + the torch-free inference code from ml/: pip install --no-deps -e ml
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "httpx"]
+dev = ["pytest", "httpx", "onnx"]  # onnx: builds the stand-in models in tests
 
 [tool.setuptools.packages.find]
 include = ["app*"]

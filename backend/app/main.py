@@ -9,7 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -17,13 +18,14 @@ from sqlalchemy.orm import Session
 
 from .auth import User, current_user, require
 from .config import get_settings
-from .db import AuditLog, Case, Database, Scan, init_db
+from .analysis import Models, analyze, model_version
+from .db import AuditLog, Case, Database, Result, Scan, init_db
 from .scans import MODALITIES, ScanError, check_image, check_volumes, read_image, read_volume, save_image, save_volume
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L: easy to read out loud
 
 
-def create_app(database_url: str | None = None, storage_dir: str | None = None) -> FastAPI:
+def create_app(database_url: str | None = None, storage_dir: str | None = None, model_dir: str | None = None) -> FastAPI:
     settings = get_settings()
     db = Database(database_url or settings.database_url)
 
@@ -36,6 +38,7 @@ def create_app(database_url: str | None = None, storage_dir: str | None = None) 
                   description="Research and portfolio project, not a medical device.")
     app.state.db = db
     app.state.storage = Path(storage_dir or settings.storage_dir)
+    app.state.models = Models(model_dir or settings.model_dir)
     app.state.max_upload_bytes = settings.max_upload_mb * 1024 * 1024
     register_routes(app)
     return app
@@ -65,6 +68,30 @@ class ScanOut(BaseModel):
     qc_passed: bool | None
     info: dict[str, Any] | None
     created_at: datetime
+
+
+class ResultOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    scan_id: str
+    model_version: str
+    progress: int
+    tumor_type: str | None
+    confidence: float | None
+    probabilities: dict[str, float] | None
+    volumes_cm3: dict[str, float] | None
+    side: str | None
+    lobe_estimate: str | None
+    has_mask: bool
+    has_gradcam: bool
+    info: dict[str, Any] | None
+    error: str | None
+    created_at: datetime
+
+    @classmethod
+    def of(cls, r: Result) -> "ResultOut":
+        fields = {k: getattr(r, k) for k in cls.model_fields if k not in ("has_mask", "has_gradcam")}
+        return cls(**fields, has_mask=r.mask_path is not None, has_gradcam=r.gradcam_path is not None)
 
 
 class MeOut(BaseModel):
@@ -163,7 +190,7 @@ def register_routes(app: FastAPI) -> None:
         return case
 
     @app.post("/cases/{case_id}/scans", response_model=ScanOut, status_code=status.HTTP_201_CREATED)
-    def upload_scan(case_id: str, request: Request,
+    def upload_scan(case_id: str, request: Request, background: BackgroundTasks,
                     image: UploadFile | None = File(None, description="one 2D MRI slice, JPG or PNG"),
                     flair: UploadFile | None = File(None, description=".nii / .nii.gz or a .zip of DICOM slices"),
                     t1: UploadFile | None = File(None), t1ce: UploadFile | None = File(None),
@@ -184,12 +211,36 @@ def register_routes(app: FastAPI) -> None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
         scan.file_format, scan.info, scan.qc_passed = fmt, info, True
         audit(db, user, "scan.upload", case.id, scan_id=scan.id, format=fmt)
+        # Start the AI right away; it runs after the response is sent, the case shows its progress
+        result = Result(case_id=case.id, scan_id=scan.id, model_version=model_version(fmt))
+        db.add(result)
+        case.status = "processing"
         db.commit()
+        app = request.app
+        background.add_task(analyze, app.state.db, app.state.storage, app.state.models, result.id, user)
         return scan
 
     @app.get("/cases/{case_id}/scans", response_model=list[ScanOut])
     def list_scans(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Scan]:
         return get_case_for(db, user, case_id).scans
+
+    @app.get("/cases/{case_id}/results", response_model=list[ResultOut])
+    def list_results(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list:
+        case = get_case_for(db, user, case_id)
+        return [ResultOut.of(r) for r in sorted(case.results, key=lambda r: r.created_at, reverse=True)]
+
+    @app.get("/cases/{case_id}/results/{result_id}/{kind}")
+    def result_file(case_id: str, result_id: str, kind: str, request: Request,
+                    user: User = Depends(current_user), db: Session = Depends(get_db)) -> FileResponse:
+        """The 3D mask (BraTS labels 1 / 2 / 4, for the viewer) or the Grad-CAM image."""
+        case = get_case_for(db, user, case_id)
+        result = db.get(Result, result_id)
+        name = {"mask": result and result.mask_path, "gradcam": result and result.gradcam_path}.get(kind)
+        if result is None or result.case_id != case.id or not name:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+        media = "image/png" if name.endswith(".png") else "application/gzip"
+        return FileResponse(request.app.state.storage / "results" / result.id / name, media_type=media,
+                            filename=f"{case.code}_{name}")
 
     @app.get("/audit", response_model=list[AuditOut])
     def audit_log(limit: int = 200, user: User = Depends(require("admin")), db: Session = Depends(get_db)) -> list:

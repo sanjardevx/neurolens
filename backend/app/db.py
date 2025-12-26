@@ -64,6 +64,7 @@ class Result(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+    scan_id: Mapped[str] = mapped_column(ForeignKey("scans.id", ondelete="CASCADE"))
     model_version: Mapped[str] = mapped_column(String(64))
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100, for the background 3D job
     tumor_type: Mapped[str | None] = mapped_column(String(32), default=None)
@@ -72,8 +73,9 @@ class Result(Base):
     volumes_cm3: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
     side: Mapped[str | None] = mapped_column(String(16), default=None)
     lobe_estimate: Mapped[str | None] = mapped_column(String(32), default=None)
-    mask_path: Mapped[str | None] = mapped_column(Text, default=None)
+    mask_path: Mapped[str | None] = mapped_column(Text, default=None)  # file names under results/<id>/
     gradcam_path: Mapped[str | None] = mapped_column(Text, default=None)
+    info: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)  # e.g. which slice the 2D model saw
     error: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 

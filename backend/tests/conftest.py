@@ -10,6 +10,8 @@ from app.auth import TokenVerifier, get_verifier
 from app.config import Settings
 from app.main import create_app
 
+from .fakes import stub_classifier, stub_segmenter
+
 ISSUER_URL = "https://test.supabase.co"
 PRIVATE_KEY = ec.generate_private_key(ec.SECP256R1())  # Supabase's default: ES256 on P-256
 
@@ -42,7 +44,11 @@ ADMIN = auth(sub="admin-1", role="admin", email="admin@clinic.test")
 
 @pytest.fixture
 def client(tmp_path):
-    app = create_app("sqlite://", storage_dir=str(tmp_path / "storage"))
+    models = tmp_path / "models"
+    models.mkdir()
+    stub_classifier(models / "classifier.onnx")
+    stub_segmenter(models / "segmenter3d.onnx")
+    app = create_app("sqlite://", storage_dir=str(tmp_path / "storage"), model_dir=str(models))
     verifier = LocalKeyVerifier(Settings(supabase_url=ISSUER_URL))
     app.dependency_overrides[get_verifier] = lambda: verifier
     with TestClient(app) as c:  # runs startup: creates the tables

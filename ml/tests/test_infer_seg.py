@@ -91,3 +91,16 @@ def test_drop_small_et_same_rule_as_torch():
     for limit in [10, 32, 33]:
         expected = drop_small_et(torch.from_numpy(mask), limit).numpy()
         assert np.array_equal(infer_seg.drop_small_et(mask, limit), expected)
+
+
+def test_progress_is_reported_per_window(tiny):
+    _, run = tiny
+    seen = []
+    infer_seg.sliding_window(np.zeros((4, 40, 36, 12), np.float32), run, PATCH, progress=seen.append)
+    assert seen == [i / 16 for i in range(1, 17)]  # 4 x 4 x 1 windows of 16 at 50% overlap
+
+
+def test_label_map_round_trips_to_regions():
+    labels = fake_mask()
+    regions = np.stack([np.isin(labels, (1, 4)), labels > 0, labels == 4])
+    assert np.array_equal(infer_seg.label_map(regions), labels)

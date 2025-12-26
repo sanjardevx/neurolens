@@ -5,9 +5,13 @@ Doctor-only: patients have no accounts and never see AI output.
 
 ```bash
 pip install -e "backend[dev]"
+pip install --no-deps -e ml          # inference code only (numpy, OpenCV, nibabel, ONNX Runtime); no PyTorch
 pytest backend
 cd backend && uvicorn app.main:app --reload   # needs SUPABASE_URL and DATABASE_URL in .env
 ```
+
+Models: `MODEL_DIR` must hold `classifier.onnx` and `segmenter3d.onnx` (made by `neurolens_ml.export` and
+`neurolens_ml.export_seg`; not in git). Tests use tiny stand-in ONNX models with the same inputs and outputs.
 
 ## Roles
 
@@ -39,10 +43,22 @@ MR modality and brain body part (DICOM), one series per zip, all 4 types present
 (co-registered), 32-512 voxels and 0.3-7 mm per axis, skull-stripped (the 3D model was trained on BraTS),
 and for images: grayscale, dark background, 128-4096 px. These are basic checks, not a guarantee; the doctor reviews every case.
 
+## AI analysis
+
+A successful upload starts the analysis in the background; the case goes `processing` → `ready` (or `failed` with the reason).
+`GET /cases/{id}/results` shows progress (0-100) and the outcome, with the model version on every result.
+
+| Upload | Output | CPU time (Apple M3) |
+|---|---|---|
+| 2D slice | tumor type, confidence, all class probabilities, Grad-CAM image | ~0.06 s |
+| 4 MRI types | 3D mask (BraTS labels 1 / 2 / 4, `GET .../results/{rid}/mask`), volume per part in cm³, side, rough lobe; tumor type + Grad-CAM from the T1ce slice with the most tumor | ~14 s |
+
+For 3D uploads the tumor type comes from the 2D classifier on one slice; the result says so (`info.classifier_input`).
+
 ## Data safety
 
 - Tables: `cases`, `scans`, `results`, `reviews`, `audit_log`. A case has an anonymous code (`NL-7KQ2XD`), never a name.
 - On Supabase, row-level security is switched on with no policies, so the public REST API sees nothing;
   only this API (database owner connection) reads and writes.
 - **DICOM headers are never stored.** A series becomes a NIfTI volume (pixels + position in space, RAS orientation); only technical tags are kept (modality, body part, field strength, slice thickness, TR, TE): no names, IDs, dates, hospital or free text. NIfTI files get a fresh header; images are re-encoded as PNG without EXIF. Text burned into the pixels is not removed.
-- Creating and opening a case, uploads and rejected uploads are written to `audit_log`.
+- Creating and opening a case, uploads, rejected uploads and finished / failed analyses are written to `audit_log`.
