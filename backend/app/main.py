@@ -7,19 +7,20 @@ from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import numpy as np
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
-import numpy as np
-from pydantic import BaseModel, ConfigDict
+from neurolens_ml.infer_cls import CLASSES
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .analysis import Models, analyze, model_version
 from .auth import User, current_user, require
 from .config import get_settings
-from .analysis import Models, analyze, model_version
-from .db import AuditLog, Case, Database, Result, Scan, init_db
+from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Review, Scan, init_db
 from .scans import MODALITIES, ScanError, check_image, check_volumes, read_image, read_volume, save_image, save_volume
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L: easy to read out loud
@@ -92,6 +93,44 @@ class ResultOut(BaseModel):
     def of(cls, r: Result) -> "ResultOut":
         fields = {k: getattr(r, k) for k in cls.model_fields if k not in ("has_mask", "has_gradcam")}
         return cls(**fields, has_mask=r.mask_path is not None, has_gradcam=r.gradcam_path is not None)
+
+
+class ReviewIn(BaseModel):
+    """approved: the AI result is right. edited: right with changes (report text and / or tumor type).
+    rejected: not usable, with a reason (Week 9 retraining learns from edits and rejections)."""
+    result_id: str
+    decision: Literal[DECISIONS]
+    reason: Literal[REJECT_REASONS] | None = None
+    note: str | None = Field(None, max_length=2000)
+    corrected_type: Literal[tuple(CLASSES)] | None = None
+    report_text: str | None = Field(None, max_length=10000)
+
+    @model_validator(mode="after")
+    def check_decision(self) -> "ReviewIn":
+        if self.decision == "rejected" and self.reason is None:
+            raise ValueError("a rejection needs a reason")
+        if self.reason == "other" and not (self.note or "").strip():
+            raise ValueError("reason 'other' needs a note")
+        if self.decision != "rejected" and self.reason is not None:
+            raise ValueError("a reason is only for rejections")
+        if self.decision == "edited" and not (self.report_text or self.corrected_type):
+            raise ValueError("an edit needs report text or a corrected tumor type")
+        if self.decision == "approved" and self.corrected_type:
+            raise ValueError("changing the tumor type is an edit, not an approval")
+        return self
+
+
+class ReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    result_id: str
+    doctor_id: str
+    decision: str
+    reason: str | None
+    note: str | None
+    corrected_type: str | None
+    report_text: str | None
+    created_at: datetime
 
 
 class MeOut(BaseModel):
@@ -241,6 +280,30 @@ def register_routes(app: FastAPI) -> None:
         media = "image/png" if name.endswith(".png") else "application/gzip"
         return FileResponse(request.app.state.storage / "results" / result.id / name, media_type=media,
                             filename=f"{case.code}_{name}")
+
+    @app.post("/cases/{case_id}/reviews", response_model=ReviewOut, status_code=status.HTTP_201_CREATED)
+    def review_case(case_id: str, body: ReviewIn, user: User = Depends(require("doctor")),
+                    db: Session = Depends(get_db)) -> Review:
+        """Only the case's doctor decides. A new review replaces the previous one; all of them stay in the history."""
+        case = get_case_for(db, user, case_id)
+        result = db.get(Result, body.result_id)
+        if result is None or result.case_id != case.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Result not found")
+        if result.progress < 100 or result.error:
+            raise HTTPException(status.HTTP_409_CONFLICT, "The analysis is not finished; nothing to review yet")
+        review = Review(case_id=case.id, doctor_id=user.id, **body.model_dump())
+        db.add(review)
+        case.status = "reviewed"
+        db.flush()
+        action = {"approved": "review.approve", "edited": "review.edit", "rejected": "review.reject"}[body.decision]
+        audit(db, user, action, case.id, review_id=review.id, result_id=result.id, reason=body.reason,
+              corrected_type=body.corrected_type)
+        db.commit()
+        return review
+
+    @app.get("/cases/{case_id}/reviews", response_model=list[ReviewOut])
+    def list_reviews(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list:
+        return sorted(get_case_for(db, user, case_id).reviews, key=lambda r: r.created_at, reverse=True)
 
     @app.get("/audit", response_model=list[AuditOut])
     def audit_log(limit: int = 200, user: User = Depends(require("admin")), db: Session = Depends(get_db)) -> list:

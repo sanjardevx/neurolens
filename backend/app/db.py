@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 CASE_STATUSES = ("new", "processing", "ready", "reviewed", "failed")
 DECISIONS = ("approved", "edited", "rejected")
+REJECT_REASONS = ("wrong_type", "bad_mask", "artifact", "other")
 
 
 def new_id() -> str:
@@ -89,9 +90,12 @@ class Review(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+    result_id: Mapped[str] = mapped_column(ForeignKey("results.id", ondelete="CASCADE"))
     doctor_id: Mapped[str] = mapped_column(String(36))
     decision: Mapped[str] = mapped_column(String(16))
-    reason: Mapped[str | None] = mapped_column(Text, default=None)  # required for a rejection
+    reason: Mapped[str | None] = mapped_column(String(16), default=None)  # one of REJECT_REASONS, for a rejection
+    note: Mapped[str | None] = mapped_column(Text, default=None)
+    corrected_type: Mapped[str | None] = mapped_column(String(32), default=None)  # the doctor's tumor type, if edited
     report_text: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 

@@ -28,9 +28,12 @@ The new role is in the token after the next login.
 
 | | doctor | admin |
 |---|---|---|
-| Create a case | yes | no |
-| See cases | own only (others' return 404) | all |
+| Create a case, upload, review | own cases only | no |
+| See cases, scans, results, reviews | own only (others' return 404) | all |
 | Read the audit log | no | yes |
+
+Every endpoint is tested with every kind of caller (case owner, other doctor, admin, no login, no role) in
+[`tests/test_access.py`](tests/test_access.py).
 
 ## Uploads
 
@@ -55,10 +58,23 @@ A successful upload starts the analysis in the background; the case goes `proces
 
 For 3D uploads the tumor type comes from the 2D classifier on one slice; the result says so (`info.classifier_input`).
 
+## Doctor review
+
+`POST /cases/{id}/reviews` with the result being reviewed:
+
+| Decision | Needs | Use |
+|---|---|---|
+| `approved` | nothing else | the AI result is right |
+| `edited` | `report_text` and / or `corrected_type` | right with changes |
+| `rejected` | `reason`: `wrong_type`, `bad_mask`, `artifact` or `other` (+ `note`) | not usable |
+
+Only a finished analysis can be reviewed (409 otherwise). A new review replaces the previous one; the history and
+every decision stay in the audit log. Edits and rejections are the training signal for the Week 9 retraining.
+
 ## Data safety
 
 - Tables: `cases`, `scans`, `results`, `reviews`, `audit_log`. A case has an anonymous code (`NL-7KQ2XD`), never a name.
 - On Supabase, row-level security is switched on with no policies, so the public REST API sees nothing;
   only this API (database owner connection) reads and writes.
 - **DICOM headers are never stored.** A series becomes a NIfTI volume (pixels + position in space, RAS orientation); only technical tags are kept (modality, body part, field strength, slice thickness, TR, TE): no names, IDs, dates, hospital or free text. NIfTI files get a fresh header; images are re-encoded as PNG without EXIF. Text burned into the pixels is not removed.
-- Creating and opening a case, uploads, rejected uploads and finished / failed analyses are written to `audit_log`.
+- Creating and opening a case, uploads, rejected uploads, finished / failed analyses and every review decision are written to `audit_log`.
