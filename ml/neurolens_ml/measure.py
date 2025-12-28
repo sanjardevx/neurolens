@@ -14,6 +14,9 @@ def voxel_cm3(affine: np.ndarray) -> float:
 def tumor_volumes(mask: np.ndarray, voxel: float) -> dict[str, float]:
     """cm³ of each part a radiologist reports, plus the two BraTS totals."""
     tc, wt, et = np.asarray(mask).astype(bool)
+    # The model predicts the 3 regions separately, so a few voxels can break the nesting; report them nested
+    tc = tc | et
+    wt = wt | tc
     parts = {
         "whole_tumor": wt,
         "tumor_core": tc,

@@ -27,7 +27,9 @@ doctor login → new case (anonymous ID) → upload 3D MRI → quality check
 - **Brain crop.** Every scan is cut to the head and padded to a square, so images from different sources have the same framing.
 - **Simple over complex.** Ten options were compared (two backbones, with and without crop, test-time flips, ensembles). One B3 on cropped scans tied the best two-model ensemble, so the lighter option won: one network, one pass, about half the compute (no second model, no flipped copy).
 - **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
-- **ONNX export.** The final model and its heatmap run in ONNX Runtime with numpy-only preprocessing, so serving needs no PyTorch. Checked on all 710 val images: same predictions, same heatmaps.
+- **CPU serving without PyTorch.** Both models run in ONNX Runtime with numpy-only pre- and post-processing, inside a FastAPI service in Docker. Each step is tested to match the PyTorch / MONAI pipeline (classifier: 710 / 710 val images; 3D: masks agree at Dice ≥ 0.9997 on real scans). On a laptop CPU: 0.06 s per 2D slice, 13-20 s per 3D scan.
+- **Privacy by design.** DICOM headers are never stored: a series becomes a volume of pixels + position, with a short allowlist of technical tags. Cases have anonymous codes, never names. Tested with a fake patient whose name and ID must not appear anywhere.
+- **Doctor-only, audited access.** Supabase login with two roles (doctor, admin). A doctor only reaches their own cases; every endpoint is tested with every kind of caller. Uploads, analyses and review decisions go to an audit log.
 
 ## Results
 
@@ -135,6 +137,7 @@ ml/notebooks/   training notebooks (run on Kaggle GPU)
 ml/data/        data splits and data reports (no images in git)
 ml/results/     metrics, confusion matrices, Grad-CAM figures
 ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
+backend/        FastAPI + ONNX Runtime: login, cases, upload, AI jobs, review, audit log (see backend/README.md)
 ```
 
 ## Run it
@@ -152,6 +155,15 @@ python -m neurolens_ml.train_seg  --config ml/configs/seg_segresnet.yaml --data 
 ```
 
 `evaluate` uses val by default; `--split test` is for the final model only. On Kaggle, [`02_classifier.ipynb`](ml/notebooks/02_classifier.ipynb) clones the repo and runs the same `train` command on a GPU.
+
+API (needs `.env` with the Supabase settings and the two `.onnx` files in `ml/models/`):
+
+```bash
+pip install -e "backend[dev]" && pip install --no-deps -e ml
+pytest backend                  # auth, roles on every endpoint, uploads and privacy, AI jobs, reviews
+docker compose up --build       # API on http://localhost:8000 (docs at /docs)
+python backend/scripts/smoke_flow.py --url http://localhost:8000 --doctor-token <jwt> --admin-token <jwt>
+```
 
 ## License
 

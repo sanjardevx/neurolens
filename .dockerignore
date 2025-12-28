@@ -1,0 +1,8 @@
+# Only backend/ and ml/neurolens_ml go into the image
+**
+!backend/pyproject.toml
+!backend/app/**
+!ml/pyproject.toml
+!ml/neurolens_ml/**
+**/__pycache__
+**/*.pyc

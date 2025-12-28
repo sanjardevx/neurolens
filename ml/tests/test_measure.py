@@ -73,3 +73,13 @@ def test_orientation_is_read_from_the_file(tmp_path):
     assert (found["ras"]["side"], found["ras"]["lobe_estimate"]) == ("right", "frontal")
     assert found["lps"]["volume_cm3"] == found["ras"]["volume_cm3"] == {
         "whole_tumor": 0.64, "tumor_core": 0.0, "enhancing": 0.0, "necrosis_non_enhancing": 0.0, "edema": 0.64}
+
+
+def test_volumes_are_nested_even_if_the_model_is_not():
+    mask = np.zeros((3, 10, 10, 10), bool)
+    mask[1, :5] = True  # WT: 500 voxels
+    mask[0, :2] = True  # TC: 200
+    mask[2, 4:7] = True  # ET: 300, partly outside TC and WT
+    v = tumor_volumes(mask, voxel=0.001)
+    assert v["enhancing"] <= v["tumor_core"] <= v["whole_tumor"]
+    assert v == {"whole_tumor": 0.7, "tumor_core": 0.5, "enhancing": 0.3, "necrosis_non_enhancing": 0.2, "edema": 0.2}
