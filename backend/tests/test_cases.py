@@ -49,3 +49,12 @@ def test_actions_are_written_to_the_audit_log(client):
 
 def test_only_admins_read_the_audit_log(client):
     assert client.get("/audit", headers=DOCTOR_A).status_code == 403
+
+
+def test_dashboard_origin_may_call_the_api(client):
+    preflight = {"Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET",
+                 "Access-Control-Request-Headers": "authorization"}
+    r = client.options("/cases", headers=preflight)
+    assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "http://localhost:3000"
+    other = client.options("/cases", headers={**preflight, "Origin": "https://evil.test"})
+    assert "access-control-allow-origin" not in other.headers

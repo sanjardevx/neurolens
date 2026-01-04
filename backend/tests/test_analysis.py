@@ -86,3 +86,29 @@ def test_analysis_is_audited(client, case):
     upload(client, case, {"image": ("slice.png", slice_png(fmt="PNG"))})
     actions = [e["action"] for e in client.get("/audit", headers=ADMIN).json()]
     assert actions[:3] == ["analysis.done", "scan.upload", "case.create"]
+
+
+def test_worklist_rows_summarize_the_latest_result_and_review(client, case):
+    empty = client.post("/cases", headers=DOCTOR_A).json()
+    upload(client, case, four(lambda m: (f"{m}.nii.gz", nifti_bytes(brain()))))
+    rows = {c["id"]: c for c in client.get("/cases", headers=DOCTOR_A).json()}
+    row = rows[case["id"]]
+    assert row["status"] == "ready" and row["progress"] == 100 and row["error"] is None
+    assert row["tumor_type"] == "glioma" and row["tumor_cm3"] == 0.26 and row["decision"] is None
+    assert rows[empty["id"]]["tumor_type"] is None and rows[empty["id"]]["progress"] is None
+
+    [r] = results(client, case)
+    client.post(f"/cases/{case['id']}/reviews", headers=DOCTOR_A, json={"result_id": r["id"], "decision": "approved"})
+    row = next(c for c in client.get("/cases", headers=DOCTOR_A).json() if c["id"] == case["id"])
+    assert row["status"] == "reviewed" and row["decision"] == "approved"
+
+
+def test_progress_reaches_100_only_with_the_saved_result(client, case, monkeypatch):
+    import app.analysis as analysis
+    seen, run_3d = [], analysis.run_3d
+    monkeypatch.setattr(analysis, "run_3d", lambda scan_dir, out_dir, models, report:
+                        run_3d(scan_dir, out_dir, models, lambda pct: (seen.append(pct), report(pct))))
+    upload(client, case, four(lambda m: (f"{m}.nii.gz", nifti_bytes(brain()))))
+    assert seen and max(seen) < 100  # a poller that sees 100% must also see the tumor type and volumes
+    [r] = results(client, case)
+    assert r["progress"] == 100 and r["tumor_type"] and r["volumes_cm3"]

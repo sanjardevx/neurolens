@@ -11,11 +11,12 @@ from typing import Any, Literal
 
 import numpy as np
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from neurolens_ml.infer_cls import CLASSES
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .analysis import Models, analyze, model_version
 from .auth import User, current_user, require
@@ -41,6 +42,9 @@ def create_app(database_url: str | None = None, storage_dir: str | None = None, 
     app.state.storage = Path(storage_dir or settings.storage_dir)
     app.state.models = Models(model_dir or settings.model_dir)
     app.state.max_upload_bytes = settings.max_upload_mb * 1024 * 1024
+    # The dashboard runs on another origin; the token goes in a header, so no cookies are allowed
+    app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+                       allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
     register_routes(app)
     return app
 
@@ -62,6 +66,26 @@ class CaseOut(BaseModel):
     updated_at: datetime
 
 
+class CaseRow(CaseOut):
+    """One worklist line: the case plus a short summary of its latest result and review."""
+    tumor_type: str | None = None
+    confidence: float | None = None
+    tumor_cm3: float | None = None  # whole tumor volume; only the 3D model measures it
+    progress: int | None = None
+    error: str | None = None
+    decision: str | None = None
+
+    @classmethod
+    def of(cls, case: Case) -> "CaseRow":
+        result = max(case.results, key=lambda r: r.created_at, default=None)
+        review = max(case.reviews, key=lambda r: r.created_at, default=None)
+        volumes = (result and result.volumes_cm3) or {}
+        return cls.model_validate(case).model_copy(update={
+            "tumor_type": result and result.tumor_type, "confidence": result and result.confidence,
+            "tumor_cm3": volumes.get("whole_tumor"), "progress": result and result.progress,
+            "error": result and result.error, "decision": review and review.decision})
+
+
 class ScanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -77,8 +101,8 @@ class ResultOut(BaseModel):
     scan_id: str
     model_version: str
     progress: int
-    tumor_type: str | None
-    confidence: float | None
+    tumor_type: str | None = None
+    confidence: float | None = None
     probabilities: dict[str, float] | None
     volumes_cm3: dict[str, float] | None
     side: str | None
@@ -86,7 +110,7 @@ class ResultOut(BaseModel):
     has_mask: bool
     has_gradcam: bool
     info: dict[str, Any] | None
-    error: str | None
+    error: str | None = None
     created_at: datetime
 
     @classmethod
@@ -214,12 +238,13 @@ def register_routes(app: FastAPI) -> None:
         db.commit()
         return case
 
-    @app.get("/cases", response_model=list[CaseOut])
-    def list_cases(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Case]:
-        query = select(Case).order_by(Case.created_at.desc())
+    @app.get("/cases", response_model=list[CaseRow])
+    def list_cases(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[CaseRow]:
+        query = (select(Case).order_by(Case.created_at.desc())
+                 .options(selectinload(Case.results), selectinload(Case.reviews)))  # 3 queries, not one per case
         if user.role == "doctor":
             query = query.where(Case.doctor_id == user.id)
-        return list(db.scalars(query))
+        return [CaseRow.of(c) for c in db.scalars(query)]
 
     @app.get("/cases/{case_id}", response_model=CaseOut)
     def read_case(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> Case:

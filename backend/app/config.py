@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     max_upload_mb: int = 500
     # Folder with classifier.onnx and segmenter3d.onnx (not in git; exported by ml/ export commands)
     model_dir: str = "./models"
+    # Browser origins allowed to call the API (the dashboard), comma-separated
+    cors_origins: str = "http://localhost:3000"
 
 
 @lru_cache

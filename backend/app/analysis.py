@@ -71,7 +71,6 @@ def run_2d(scan_dir: Path, out_dir: Path, models: Models, report: Callable[[int]
     img = np.asarray(Image.open(scan_dir / "image.png").convert("RGB"))
     out = classify(img, models.classifier())
     Image.fromarray(out.pop("gradcam")).save(out_dir / "gradcam.png")
-    report(100)
     return out | {"gradcam_path": "gradcam.png", "info": {"classifier_input": "uploaded 2D slice"}}
 
 
@@ -84,7 +83,7 @@ def run_3d(scan_dir: Path, out_dir: Path, models: Models, report: Callable[[int]
     slice_rgb, z = tumor_slice_rgb(image[MRI_TYPES.index("t1ce")], mask[1])
     out = classify(slice_rgb, models.classifier())
     Image.fromarray(out.pop("gradcam")).save(out_dir / "gradcam.png")
-    report(100)
+    report(95)
     return out | {"volumes_cm3": m["volume_cm3"], "side": m["side"], "lobe_estimate": m["lobe_estimate"],
                   "mask_path": "mask.nii.gz", "gradcam_path": "gradcam.png",
                   "info": {"classifier_input": f"T1ce axial slice {z} (the 2D model sees one slice)",
@@ -108,6 +107,8 @@ def analyze(db: Database, storage: Path, models: Models, result_id: str, user: U
             out = run(storage / scan.storage_path, out_dir, models, report)
             for key, value in out.items():
                 setattr(result, key, value)
+            # 100% only in the same commit as the outputs: a client that sees 100 always sees the result
+            result.progress = 100
             case.status = "ready"
             action, detail = "analysis.done", {"result_id": result.id}
         except Exception as e:  # any failure ends the job cleanly; the doctor sees the reason

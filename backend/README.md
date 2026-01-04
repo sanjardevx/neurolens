@@ -7,8 +7,11 @@ Doctor-only: patients have no accounts and never see AI output.
 pip install -e "backend[dev]"
 pip install --no-deps -e ml          # inference code only (numpy, OpenCV, nibabel, ONNX Runtime); no PyTorch
 pytest backend
-cd backend && uvicorn app.main:app --reload   # needs SUPABASE_URL and DATABASE_URL in .env
+uvicorn app.main:app --app-dir backend --reload   # from the repo root; reads .env there
 ```
+
+`.env` needs `SUPABASE_URL` and `DATABASE_URL`. `CORS_ORIGINS` lists the dashboard origins allowed to call the API
+(default `http://localhost:3000`).
 
 Models: `MODEL_DIR` must hold `classifier.onnx` and `segmenter3d.onnx` (made by `neurolens_ml.export` and
 `neurolens_ml.export_seg`; not in git). Tests use tiny stand-in ONNX models with the same inputs and outputs.
