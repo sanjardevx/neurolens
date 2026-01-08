@@ -45,3 +45,38 @@ export const TUMOR_LABELS: Record<string, string> = {
   pituitary: "Pituitary",
   notumor: "No tumor",
 };
+
+export type CaseOut = Pick<CaseRow, "id" | "code" | "status" | "created_at" | "updated_at">;
+
+export type ResultOut = {
+  id: string;
+  progress: number;
+  tumor_type: string | null;
+  confidence: number | null;
+  probabilities: Record<string, number> | null;
+  volumes_cm3: Record<string, number> | null;
+  side: string | null;
+  lobe_estimate: string | null;
+  has_mask: boolean;
+  has_gradcam: boolean;
+  error: string | null;
+  created_at: string;
+};
+
+/** Multipart upload with progress. fetch() can't report upload progress, XMLHttpRequest can. */
+export function upload<T>(path: string, token: string, form: FormData, onProgress: (share: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", API_URL + path);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.responseType = "json";
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(xhr.response);
+      const detail = xhr.response?.detail;
+      reject(new ApiError(xhr.status, typeof detail === "string" ? detail : `Upload failed (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Can't reach the NeuroLens API. Is it running?"));
+    xhr.send(form);
+  });
+}

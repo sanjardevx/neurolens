@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, TUMOR_LABELS, type CaseRow } from "@/lib/api";
+import { api, type CaseRow } from "@/lib/api";
+import { resultOf, statusOf, whenOf } from "@/lib/cases";
 
 const POLL_MS = 5000;
 
@@ -25,49 +26,6 @@ const TAB_OF: Record<CaseRow["status"], Tab> = {
   reviewed: "done",
   failed: "done",
 };
-
-const PILL = {
-  review: "bg-amber-100 text-amber-900",
-  working: "bg-blue-50 text-blue-700",
-  approved: "bg-green-100 text-green-900",
-  rejected: "bg-red-100 text-red-900",
-  muted: "bg-muted text-muted-foreground",
-};
-
-function statusOf(c: CaseRow): [string, string] {
-  switch (c.status) {
-    case "ready":
-      return ["Needs review", PILL.review];
-    case "new":
-      return ["No scan yet", PILL.muted];
-    case "processing":
-      return [`AI working… ${c.progress ?? 0}%`, PILL.working];
-    case "failed":
-      return ["Failed", PILL.muted];
-    case "reviewed":
-      if (c.decision === "rejected") return ["Rejected", PILL.rejected];
-      return [c.decision === "edited" ? "Edited" : "Approved", PILL.approved];
-  }
-}
-
-function resultOf(c: CaseRow): string {
-  if (!c.tumor_type) return "—";
-  const type = TUMOR_LABELS[c.tumor_type] ?? c.tumor_type;
-  // The 3D model measures the tumor; a single 2D slice only gives the type and its confidence
-  if (c.tumor_cm3) return `${type} · ${c.tumor_cm3.toFixed(1)} cm³`;
-  return c.confidence !== null ? `${type} · ${Math.round(c.confidence * 100)}%` : type;
-}
-
-function whenOf(iso: string): string {
-  // SQLite (local dev) sends times without a zone; they are UTC
-  const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + "Z");
-  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86_400_000);
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (days === 0) return `Today ${time}`;
-  if (days === 1) return `Yesterday ${time}`;
-  if (days < 7) return d.toLocaleDateString([], { weekday: "long" });
-  return d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
-}
 
 /** Largest tumors first (most urgent to read), then newest. */
 function byUrgency(a: CaseRow, b: CaseRow): number {
@@ -148,26 +106,43 @@ export default function WorklistPage() {
               <TableRow>
                 <TableHead className="h-11 pl-5">Case</TableHead>
                 <TableHead>AI result</TableHead>
-                <TableHead className="pr-5">Status</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="pr-5 text-right"><span className="sr-only">Open</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((c) => {
                 const [label, pill] = statusOf(c);
+                const action = c.status === "ready" ? "Review" : c.status === "new" ? "Upload" : "Open";
                 return (
                   <TableRow key={c.id}>
                     <TableCell className="py-3.5 pl-5">
-                      <div className="font-mono font-semibold">{c.code}</div>
+                      {/* The code links too: on a phone the button column can be off screen */}
+                      <Link href={`/cases/${c.id}`} tabIndex={-1} className="font-mono font-semibold hover:underline">
+                        {c.code}
+                      </Link>
                       <div className="text-sm text-muted-foreground">{whenOf(c.created_at)}</div>
                     </TableCell>
                     <TableCell>{resultOf(c)}</TableCell>
-                    <TableCell className="pr-5">
+                    <TableCell>
                       <span
                         title={c.status === "failed" ? (c.error ?? undefined) : undefined}
                         className={`inline-block rounded-full px-2.5 py-1 text-[13px] font-semibold tabular-nums ${pill}`}
                       >
                         {label}
                       </span>
+                    </TableCell>
+                    <TableCell className="pr-5 text-right">
+                      <Link
+                        href={`/cases/${c.id}`}
+                        aria-label={`${action} case ${c.code}`}
+                        className={buttonVariants({
+                          variant: c.status === "ready" ? "default" : "outline",
+                          className: "h-10 px-4 font-semibold",
+                        })}
+                      >
+                        {action}
+                      </Link>
                     </TableCell>
                   </TableRow>
                 );
