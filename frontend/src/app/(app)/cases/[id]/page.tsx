@@ -5,9 +5,10 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/session";
+import { ResultSummary } from "@/components/result-summary";
 import { Progress, UploadForm } from "@/components/upload-form";
 import { api, type CaseOut, type ResultOut } from "@/lib/api";
-import { resultOf, statusOf, whenOf } from "@/lib/cases";
+import { statusOf, whenOf } from "@/lib/cases";
 
 const POLL_MS = 2000;
 
@@ -98,17 +99,7 @@ export default function CasePage() {
       )}
 
       {result && (kase.status === "ready" || kase.status === "reviewed") && (
-        <section className="flex flex-col gap-2 rounded-xl border bg-background p-5 sm:p-6">
-          <h2 className="text-sm font-medium text-muted-foreground">AI result (draft until you approve it)</h2>
-          <p className="text-2xl font-semibold">
-            {resultOf({ tumor_type: result.tumor_type, confidence: result.confidence, tumor_cm3: result.volumes_cm3?.whole_tumor ?? null })}
-          </p>
-          {result.side && (
-            <p className="text-muted-foreground first-letter:uppercase">
-              {result.side} side{result.lobe_estimate ? ` · ${result.lobe_estimate} (rough estimate)` : ""}
-            </p>
-          )}
-        </section>
+        <ResultSummary caseId={kase.id} result={result} token={token} />
       )}
     </>
   );

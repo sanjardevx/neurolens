@@ -50,6 +50,7 @@ export type CaseOut = Pick<CaseRow, "id" | "code" | "status" | "created_at" | "u
 
 export type ResultOut = {
   id: string;
+  model_version: string;
   progress: number;
   tumor_type: string | null;
   confidence: number | null;
@@ -59,9 +60,17 @@ export type ResultOut = {
   lobe_estimate: string | null;
   has_mask: boolean;
   has_gradcam: boolean;
+  info: { classifier_input?: string } | null;
   error: string | null;
   created_at: string;
 };
+
+/** A protected file (e.g. the Grad-CAM image) as a local object URL: <img src> can't send the token. */
+export async function apiFileUrl(path: string, token: string): Promise<string> {
+  const res = await fetch(API_URL + path, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new ApiError(res.status, `Could not load the file (${res.status})`);
+  return URL.createObjectURL(await res.blob());
+}
 
 /** Multipart upload with progress. fetch() can't report upload progress, XMLHttpRequest can. */
 export function upload<T>(path: string, token: string, form: FormData, onProgress: (share: number) => void): Promise<T> {
