@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/supabase";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -12,7 +14,12 @@ export async function api<T>(path: string, token: string, init: RequestInit = {}
   try {
     res = await fetch(API_URL + path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
   } catch {
-    throw new ApiError(0, "Can't reach the NeuroLens API. Is it running?");
+    throw new ApiError(0, "Can't reach the NeuroLens server. Check your connection and try again.");
+  }
+  if (res.status === 401) {
+    // The login is no longer valid (expired or revoked): signing out sends the doctor back to the login page
+    await supabase?.auth.signOut();
+    throw new ApiError(401, "Your session has ended. Please sign in again.");
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -85,7 +92,7 @@ export function upload<T>(path: string, token: string, form: FormData, onProgres
       const detail = xhr.response?.detail;
       reject(new ApiError(xhr.status, typeof detail === "string" ? detail : `Upload failed (${xhr.status})`));
     };
-    xhr.onerror = () => reject(new ApiError(0, "Can't reach the NeuroLens API. Is it running?"));
+    xhr.onerror = () => reject(new ApiError(0, "Can't reach the NeuroLens server. Check your connection and try again."));
     xhr.send(form);
   });
 }

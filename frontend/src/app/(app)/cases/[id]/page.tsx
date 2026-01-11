@@ -7,7 +7,8 @@ import { useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { ResultSummary } from "@/components/result-summary";
 import { Progress, UploadForm } from "@/components/upload-form";
-import { api, type CaseOut, type ResultOut } from "@/lib/api";
+import { ErrorNote, Skeleton } from "@/components/states";
+import { api, type ApiError, type CaseOut, type ResultOut } from "@/lib/api";
 import { statusOf, whenOf } from "@/lib/cases";
 
 const POLL_MS = 2000;
@@ -17,7 +18,8 @@ export default function CasePage() {
   const { token, role } = useSession();
   const [kase, setCase] = useState<CaseOut | null>(null);
   const [result, setResult] = useState<ResultOut | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [offline, setOffline] = useState(false);  // a progress poll failed; it keeps trying
   const [version, setVersion] = useState(0);  // bump to read the case again (after upload, when the AI ends)
 
   useEffect(() => {
@@ -27,8 +29,10 @@ export default function CasePage() {
         if (!live) return;
         setCase(c);
         setResult(results[0] ?? null);
+        setError(null);
+        setOffline(false);
       },
-      (e: Error) => live && setError(e.message),
+      (e: ApiError) => live && setError(e),
     );
     return () => {
       live = false;
@@ -41,11 +45,15 @@ export default function CasePage() {
     if (!working) return;
     let live = true;
     const timer = setInterval(() => {
-      api<ResultOut[]>(`/cases/${id}/results`, token).then(([r]) => {
-        if (!live || !r) return;
-        setResult(r);
-        if (r.progress === 100 || r.error) setVersion((v) => v + 1);
-      });
+      api<ResultOut[]>(`/cases/${id}/results`, token).then(
+        ([r]) => {
+          if (!live || !r) return;
+          setOffline(false);
+          setResult(r);
+          if (r.progress === 100 || r.error) setVersion((v) => v + 1);
+        },
+        () => live && setOffline(true),
+      );
     }, POLL_MS);
     return () => {
       live = false;
@@ -53,15 +61,24 @@ export default function CasePage() {
     };
   }, [working, id, token]);
 
-  if (error) {
+  if (!kase) {
     return (
       <>
         <BackLink />
-        <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+        {error?.status === 404 ? (
+          <div className="flex flex-col gap-2">
+            <h1 className="text-2xl font-bold">Case not found</h1>
+            {/* The API answers 404 for another doctor's case too, so nobody learns which codes exist */}
+            <p className="text-muted-foreground">It doesn&apos;t exist, or it belongs to another doctor.</p>
+          </div>
+        ) : error ? (
+          <ErrorNote message={error.message} onRetry={() => setVersion((v) => v + 1)} />
+        ) : (
+          <Skeleton label="Loading case…" lines={4} />
+        )}
       </>
     );
   }
-  if (!kase) return <p role="status" className="text-muted-foreground">Loading case…</p>;
 
   const [label, pill] = statusOf({ status: kase.status, progress: result?.progress ?? null, decision: null });
   const canUpload = role === "doctor" && (kase.status === "new" || kase.status === "failed");
@@ -78,6 +95,13 @@ export default function CasePage() {
           <span className={`rounded-full px-3 py-1.5 text-sm font-semibold tabular-nums ${pill}`}>{label}</span>
         )}
       </header>
+
+      {(offline || error) && (
+        <ErrorNote
+          message={`${error?.message ?? "Lost the connection to the API."} Showing the last loaded state.`}
+          onRetry={() => setVersion((v) => v + 1)}
+        />
+      )}
 
       {kase.status === "failed" && result?.error && (
         <p role="alert" className="rounded-lg bg-destructive/10 px-4 py-3 text-destructive">

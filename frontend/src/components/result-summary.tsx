@@ -98,7 +98,12 @@ export function ResultSummary({ caseId, result, token }: { caseId: string; resul
 
       {result.has_gradcam && <GradCam caseId={caseId} result={result} token={token} />}
 
-      <p className="text-sm text-muted-foreground">Models: {result.model_version}</p>
+      <div className="flex flex-col gap-1 border-t pt-4 text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">
+          Research prototype, not a medical device. Check the scan yourself; the decision is yours.
+        </p>
+        <p>Models: {result.model_version}</p>
+      </div>
     </section>
   );
 }

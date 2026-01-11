@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ErrorNote, Skeleton } from "@/components/states";
 import { api, type CaseRow } from "@/lib/api";
 import { resultOf, statusOf, whenOf } from "@/lib/cases";
 
@@ -18,6 +19,13 @@ const TABS: [Tab, string][] = [
   ["done", "Done"],
   ["all", "All"],
 ];
+
+const EMPTY_TAB: Record<Tab, string> = {
+  review: "Nothing is waiting for your review.",
+  processing: "No scans are being analyzed.",
+  done: "No reviewed cases yet.",
+  all: "No cases.",
+};
 
 const TAB_OF: Record<CaseRow["status"], Tab> = {
   ready: "review",
@@ -37,6 +45,7 @@ export default function WorklistPage() {
   const [cases, setCases] = useState<CaseRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("review");
+  const [attempt, setAttempt] = useState(0);  // bump to load again after an error
 
   // Refresh while the AI is working, so progress and finished results appear by themselves
   const working = cases?.some((c) => c.status === "processing") ?? false;
@@ -57,7 +66,7 @@ export default function WorklistPage() {
       live = false;
       clearInterval(id);
     };
-  }, [token, working]);
+  }, [token, working, attempt]);
 
   const count = (t: Tab) => cases?.filter((c) => t === "all" || TAB_OF[c.status] === t).length ?? 0;
   const rows = (cases ?? []).filter((c) => tab === "all" || TAB_OF[c.status] === tab).sort(byUrgency);
@@ -90,16 +99,31 @@ export default function WorklistPage() {
           ))}
         </div>
 
-        {error ? (
-          <p role="alert" className="m-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
-        ) : cases === null ? (
-          <p role="status" className="px-5 py-10 text-muted-foreground">Loading cases…</p>
+        {error && (
+          <div className="m-4">
+            {/* After a failed refresh the last list stays visible below the note */}
+            <ErrorNote message={cases ? `${error} The list below may be out of date.` : error}
+                       onRetry={() => setAttempt((n) => n + 1)} />
+          </div>
+        )}
+        {cases === null ? (
+          !error && <div className="p-4"><Skeleton label="Loading cases…" /></div>
+        ) : cases.length === 0 ? (
+          <div className="flex flex-col items-start gap-4 px-5 py-10">
+            <p className="text-lg font-semibold">No cases yet</p>
+            {role === "doctor" ? (
+              <>
+                <p className="text-muted-foreground">Create a case and upload a brain MRI. The AI result lands here.</p>
+                <Link href="/cases/new" className={buttonVariants({ className: "h-11 px-5 font-semibold" })}>
+                  Create the first case
+                </Link>
+              </>
+            ) : (
+              <p className="text-muted-foreground">Cases appear here once doctors upload scans.</p>
+            )}
+          </div>
         ) : rows.length === 0 ? (
-          <p className="px-5 py-10 text-muted-foreground">
-            {cases.length === 0 ? "No cases yet." : "Nothing here."}
-          </p>
+          <p className="px-5 py-10 text-muted-foreground">{EMPTY_TAB[tab]}</p>
         ) : (
           <Table className="text-[15px]">
             <TableHeader>
