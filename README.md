@@ -29,6 +29,7 @@ doctor login → new case (anonymous ID) → upload 3D MRI → quality check
 - **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
 - **CPU serving without PyTorch.** Both models run in ONNX Runtime with numpy-only pre- and post-processing, inside a FastAPI service in Docker. Each step is tested to match the PyTorch / MONAI pipeline (classifier: 710 / 710 val images; 3D: masks agree at Dice ≥ 0.9997 on real scans). On a laptop CPU: 0.06 s per 2D slice, 13-20 s per 3D scan.
 - **Privacy by design.** DICOM headers are never stored: a series becomes a volume of pixels + position, with a short allowlist of technical tags. Cases have anonymous codes, never names. Tested with a fake patient whose name and ID must not appear anywhere.
+- **A worklist built for reading.** Cases waiting for review come first, largest tumors on top. Upload shows real progress, the AI job reports its own progress, and every result is labeled a draft until a doctor approves it.
 - **Doctor-only, audited access.** Supabase login with two roles (doctor, admin). A doctor only reaches their own cases; every endpoint is tested with every kind of caller. Uploads, analyses and review decisions go to an audit log.
 
 ## Results
@@ -124,7 +125,7 @@ Many images are the same scan saved again with other contrast or sharpening. In 
 |---|---|
 | ML | PyTorch, timm, MONAI, Albumentations |
 | Serving | ONNX Runtime, FastAPI, Docker |
-| Frontend | Next.js, Tailwind, shadcn/ui, Recharts, NiiVue |
+| Frontend | Next.js, Tailwind, shadcn/ui, NiiVue |
 | Data & reports | Supabase, Ollama / LLM API |
 | CI / Deploy | GitHub Actions, Hugging Face Spaces, Vercel |
 
@@ -138,6 +139,7 @@ ml/data/        data splits and data reports (no images in git)
 ml/results/     metrics, confusion matrices, Grad-CAM figures
 ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 backend/        FastAPI + ONNX Runtime: login, cases, upload, AI jobs, review, audit log (see backend/README.md)
+frontend/       Next.js dashboard for doctors: login, worklist, upload, AI results (see frontend/README.md)
 ```
 
 ## Run it
@@ -163,6 +165,13 @@ pip install -e "backend[dev]" && pip install --no-deps -e ml
 pytest backend                  # auth, roles on every endpoint, uploads and privacy, AI jobs, reviews
 docker compose up --build       # API on http://localhost:8000 (docs at /docs)
 python backend/scripts/smoke_flow.py --url http://localhost:8000 --doctor-token <jwt> --admin-token <jwt>
+```
+
+Dashboard (needs `frontend/.env.local` with the Supabase URL and publishable key, and the API running):
+
+```bash
+npm --prefix frontend install
+npm --prefix frontend run dev   # http://localhost:3000
 ```
 
 ## License
