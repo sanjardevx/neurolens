@@ -112,3 +112,16 @@ def test_progress_reaches_100_only_with_the_saved_result(client, case, monkeypat
     assert seen and max(seen) < 100  # a poller that sees 100% must also see the tumor type and volumes
     [r] = results(client, case)
     assert r["progress"] == 100 and r["tumor_type"] and r["volumes_cm3"]
+
+
+def test_viewer_gets_the_stored_scan_files_only_for_own_cases(client, case):
+    scan = upload(client, case, four(lambda m: (f"{m}.nii.gz", nifti_bytes(brain()))))
+    base = f"/cases/{case['id']}/scans/{scan['id']}"
+    r = client.get(f"{base}/t1ce", headers=DOCTOR_A)
+    assert r.status_code == 200 and case["code"] in r.headers["content-disposition"]
+    vol = nib.Nifti1Image.from_bytes(__import__("gzip").decompress(r.content))
+    assert vol.shape == brain().shape
+    assert client.get(f"{base}/t1ce", headers=DOCTOR_B).status_code == 404  # another doctor's case
+    assert client.get(f"{base}/t1ce", headers=ADMIN).status_code == 200
+    assert client.get(f"{base}/image", headers=DOCTOR_A).status_code == 404  # a 3D scan has no 2D image
+    assert client.get(f"{base}/seg", headers=DOCTOR_A).status_code == 404

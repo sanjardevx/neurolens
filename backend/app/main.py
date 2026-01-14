@@ -288,6 +288,20 @@ def register_routes(app: FastAPI) -> None:
     def list_scans(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Scan]:
         return get_case_for(db, user, case_id).scans
 
+    @app.get("/cases/{case_id}/scans/{scan_id}/{kind}")
+    def scan_file(case_id: str, scan_id: str, kind: str, request: Request,
+                  user: User = Depends(current_user), db: Session = Depends(get_db)) -> FileResponse:
+        """One stored, de-identified scan file for the viewer: an MRI type (flair, t1, t1ce, t2) or the 2D image.
+        Opening the case is already audited (case.view), so file reads are not logged one by one."""
+        case = get_case_for(db, user, case_id)
+        scan = db.get(Scan, scan_id)
+        name = {**{m: f"{m}.nii.gz" for m in MODALITIES}, "image": "image.png"}.get(kind)
+        path = request.app.state.storage / scan.storage_path / name if scan and name else None
+        if scan is None or scan.case_id != case.id or path is None or not path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+        media = "image/png" if kind == "image" else "application/gzip"
+        return FileResponse(path, media_type=media, filename=f"{case.code}_{name}")
+
     @app.get("/cases/{case_id}/results", response_model=list[ResultOut])
     def list_results(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list:
         case = get_case_for(db, user, case_id)
