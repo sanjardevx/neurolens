@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -55,8 +55,11 @@ export const TUMOR_LABELS: Record<string, string> = {
 
 export type CaseOut = Pick<CaseRow, "id" | "code" | "status" | "created_at" | "updated_at">;
 
+export type ScanOut = { id: string; file_format: string; created_at: string };
+
 export type ResultOut = {
   id: string;
+  scan_id: string;
   model_version: string;
   progress: number;
   tumor_type: string | null;

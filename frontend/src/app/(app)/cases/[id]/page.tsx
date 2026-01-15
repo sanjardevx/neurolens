@@ -6,9 +6,10 @@ import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/session";
 import { ResultSummary } from "@/components/result-summary";
+import { ScanViewer } from "@/components/scan-viewer";
 import { Progress, UploadForm } from "@/components/upload-form";
 import { ErrorNote, Skeleton } from "@/components/states";
-import { api, type ApiError, type CaseOut, type ResultOut } from "@/lib/api";
+import { api, type ApiError, type CaseOut, type ResultOut, type ScanOut } from "@/lib/api";
 import { statusOf, whenOf } from "@/lib/cases";
 
 const POLL_MS = 2000;
@@ -18,17 +19,23 @@ export default function CasePage() {
   const { token, role } = useSession();
   const [kase, setCase] = useState<CaseOut | null>(null);
   const [result, setResult] = useState<ResultOut | null>(null);
+  const [scans, setScans] = useState<ScanOut[]>([]);
   const [error, setError] = useState<ApiError | null>(null);
   const [offline, setOffline] = useState(false);  // a progress poll failed; it keeps trying
   const [version, setVersion] = useState(0);  // bump to read the case again (after upload, when the AI ends)
 
   useEffect(() => {
     let live = true;
-    Promise.all([api<CaseOut>(`/cases/${id}`, token), api<ResultOut[]>(`/cases/${id}/results`, token)]).then(
-      ([c, results]) => {
+    Promise.all([
+      api<CaseOut>(`/cases/${id}`, token),
+      api<ResultOut[]>(`/cases/${id}/results`, token),
+      api<ScanOut[]>(`/cases/${id}/scans`, token),
+    ]).then(
+      ([c, results, s]) => {
         if (!live) return;
         setCase(c);
         setResult(results[0] ?? null);
+        setScans(s);
         setError(null);
         setOffline(false);
       },
@@ -82,6 +89,9 @@ export default function CasePage() {
 
   const [label, pill] = statusOf({ status: kase.status, progress: result?.progress ?? null, decision: null });
   const canUpload = role === "doctor" && (kase.status === "new" || kase.status === "failed");
+  // The scan the latest result was made from (or the newest upload); only 3D scans open in the viewer
+  const scan = scans.find((s) => s.id === result?.scan_id) ?? scans.toSorted((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const showViewer = scan && scan.file_format !== "image" && kase.status !== "new";
 
   return (
     <>
@@ -121,6 +131,8 @@ export default function CasePage() {
           </p>
         </section>
       )}
+
+      {showViewer && <ScanViewer caseId={kase.id} scanId={scan.id} token={token} />}
 
       {result && (kase.status === "ready" || kase.status === "reviewed") && (
         <ResultSummary caseId={kase.id} result={result} token={token} />
