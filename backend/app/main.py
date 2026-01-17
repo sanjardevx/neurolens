@@ -220,6 +220,12 @@ def store_upload(request: Request, scan_dir: Path, image: UploadFile | None,
     return formats.pop() if len(formats) == 1 else "mixed", info
 
 
+def medical_file(path: Path, media: str, filename: str) -> FileResponse:
+    """Scan and result files are never cached by the browser: no copies left on a shared clinic computer,
+    and a corrected mask is never hidden behind an old cached one."""
+    return FileResponse(path, media_type=media, filename=filename, headers={"Cache-Control": "no-store"})
+
+
 def register_routes(app: FastAPI) -> None:
     @app.get("/health")
     def health() -> dict:
@@ -300,7 +306,7 @@ def register_routes(app: FastAPI) -> None:
         if scan is None or scan.case_id != case.id or path is None or not path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
         media = "image/png" if kind == "image" else "application/gzip"
-        return FileResponse(path, media_type=media, filename=f"{case.code}_{name}")
+        return medical_file(path, media, f"{case.code}_{name}")
 
     @app.get("/cases/{case_id}/results", response_model=list[ResultOut])
     def list_results(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list:
@@ -317,8 +323,7 @@ def register_routes(app: FastAPI) -> None:
         if result is None or result.case_id != case.id or not name:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
         media = "image/png" if name.endswith(".png") else "application/gzip"
-        return FileResponse(request.app.state.storage / "results" / result.id / name, media_type=media,
-                            filename=f"{case.code}_{name}")
+        return medical_file(request.app.state.storage / "results" / result.id / name, media, f"{case.code}_{name}")
 
     @app.post("/cases/{case_id}/reviews", response_model=ReviewOut, status_code=status.HTTP_201_CREATED)
     def review_case(case_id: str, body: ReviewIn, user: User = Depends(require("doctor")),

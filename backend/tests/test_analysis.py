@@ -44,6 +44,7 @@ def test_3d_mask_file_has_brats_labels_on_the_scan_grid(client, case):
     [r] = results(client, case)
     resp = client.get(f"/cases/{case['id']}/results/{r['id']}/mask", headers=DOCTOR_A)
     assert resp.status_code == 200 and case["code"] in resp.headers["content-disposition"]
+    assert resp.headers["cache-control"] == "no-store"
     mask = nib.Nifti1Image.from_bytes(__import__("gzip").decompress(resp.content))
     labels = np.asarray(mask.dataobj)
     assert labels.shape == brain().shape and set(np.unique(labels)) == {0, 4} and (labels == 4).sum() == MARKER_VOXELS
@@ -119,6 +120,7 @@ def test_viewer_gets_the_stored_scan_files_only_for_own_cases(client, case):
     base = f"/cases/{case['id']}/scans/{scan['id']}"
     r = client.get(f"{base}/t1ce", headers=DOCTOR_A)
     assert r.status_code == 200 and case["code"] in r.headers["content-disposition"]
+    assert r.headers["cache-control"] == "no-store"  # scans never stay in the browser cache
     vol = nib.Nifti1Image.from_bytes(__import__("gzip").decompress(r.content))
     assert vol.shape == brain().shape
     assert client.get(f"{base}/t1ce", headers=DOCTOR_B).status_code == 404  # another doctor's case
