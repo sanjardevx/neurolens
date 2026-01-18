@@ -132,7 +132,8 @@ export default function CasePage() {
         </section>
       )}
 
-      {showViewer && <ScanViewer caseId={kase.id} scanId={scan.id} token={token} />}
+      {showViewer && <ScanViewer caseId={kase.id} scanId={scan.id} token={token}
+                                  resultId={result?.has_mask && result.scan_id === scan.id ? result.id : null} />}
 
       {result && (kase.status === "ready" || kase.status === "reviewed") && (
         <ResultSummary caseId={kase.id} result={result} token={token} />
