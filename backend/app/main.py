@@ -5,7 +5,7 @@
 import secrets
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -22,6 +22,7 @@ from .analysis import Models, analyze, model_version
 from .auth import User, current_user, require
 from .config import get_settings
 from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Review, Scan, init_db
+from .masks import CORRECTED, MaskError, changed_voxels, read_corrected, save_corrected
 from .scans import MODALITIES, ScanError, check_image, check_volumes, read_image, read_volume, save_image, save_volume
 
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L: easy to read out loud
@@ -108,6 +109,7 @@ class ResultOut(BaseModel):
     side: str | None
     lobe_estimate: str | None
     has_mask: bool
+    has_corrected_mask: bool
     has_gradcam: bool
     info: dict[str, Any] | None
     error: str | None = None
@@ -115,8 +117,10 @@ class ResultOut(BaseModel):
 
     @classmethod
     def of(cls, r: Result) -> "ResultOut":
-        fields = {k: getattr(r, k) for k in cls.model_fields if k not in ("has_mask", "has_gradcam")}
-        return cls(**fields, has_mask=r.mask_path is not None, has_gradcam=r.gradcam_path is not None)
+        computed = ("has_mask", "has_corrected_mask", "has_gradcam")
+        fields = {k: getattr(r, k) for k in cls.model_fields if k not in computed}
+        return cls(**fields, has_mask=r.mask_path is not None, has_gradcam=r.gradcam_path is not None,
+                   has_corrected_mask=bool((r.info or {}).get("corrected_mask")))
 
 
 class ReviewIn(BaseModel):
@@ -319,11 +323,40 @@ def register_routes(app: FastAPI) -> None:
         """The 3D mask (BraTS labels 1 / 2 / 4, for the viewer) or the Grad-CAM image."""
         case = get_case_for(db, user, case_id)
         result = db.get(Result, result_id)
-        name = {"mask": result and result.mask_path, "gradcam": result and result.gradcam_path}.get(kind)
+        corrected = result and (result.info or {}).get("corrected_mask")
+        name = {"mask": result and result.mask_path, "gradcam": result and result.gradcam_path,
+                "corrected": corrected and CORRECTED}.get(kind)
         if result is None or result.case_id != case.id or not name:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
         media = "image/png" if name.endswith(".png") else "application/gzip"
         return medical_file(request.app.state.storage / "results" / result.id / name, media, f"{case.code}_{name}")
+
+    @app.post("/cases/{case_id}/results/{result_id}/mask", response_model=ResultOut)
+    def correct_mask(case_id: str, result_id: str, request: Request, mask: UploadFile = File(...),
+                     user: User = Depends(require("doctor")), db: Session = Depends(get_db)) -> ResultOut:
+        """The doctor's fixed 3D mask from the viewer. The AI mask stays untouched (Week 9 learns from the
+        difference); a new save replaces the previous correction. Volumes are measured again."""
+        case = get_case_for(db, user, case_id)
+        result = db.get(Result, result_id)
+        if result is None or result.case_id != case.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Result not found")
+        if result.progress < 100 or result.error or not result.mask_path:
+            raise HTTPException(status.HTTP_409_CONFLICT, "This result has no finished 3D mask to correct")
+        if case.status == "reviewed":
+            raise HTTPException(status.HTTP_409_CONFLICT, "The case is already reviewed; change the decision first")
+        out_dir = request.app.state.storage / "results" / result.id
+        try:
+            labels, affine = read_corrected(read_upload(request, mask), out_dir / result.mask_path)
+        except MaskError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
+        volumes = save_corrected(labels, affine, out_dir)
+        # A new dict, so SQLAlchemy sees the JSON change
+        result.info = {**(result.info or {}), "corrected_mask": {
+            "by": user.id, "at": datetime.now(UTC).isoformat(timespec="seconds"), "volumes_cm3": volumes}}
+        audit(db, user, "mask.correct", case.id, result_id=result.id,
+              changed_voxels=changed_voxels(labels, out_dir / result.mask_path))
+        db.commit()
+        return ResultOut.of(result)
 
     @app.post("/cases/{case_id}/reviews", response_model=ReviewOut, status_code=status.HTTP_201_CREATED)
     def review_case(case_id: str, body: ReviewIn, user: User = Depends(require("doctor")),
