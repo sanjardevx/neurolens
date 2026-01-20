@@ -16,7 +16,9 @@ const pct = (p: number) => `${Math.round(p * 100)}%`;
 const typeLabel = (t: string) => TUMOR_LABELS[t] ?? t;
 
 export function ResultSummary({ caseId, result, token }: { caseId: string; result: ResultOut; token: string }) {
-  const volumes = result.volumes_cm3;
+  // After the doctor fixed the mask, its volumes are the ones that count; the AI's stay for comparison
+  const corrected = result.info?.corrected_mask?.volumes_cm3 ?? null;
+  const volumes = corrected ?? result.volumes_cm3;
   const is3d = volumes !== null;
   const found = is3d && (volumes.whole_tumor ?? 0) > 0;
   const probs = Object.entries(result.probabilities ?? {}).sort((a, b) => b[1] - a[1]);
@@ -34,7 +36,8 @@ export function ResultSummary({ caseId, result, token }: { caseId: string; resul
         <Fact label="Tumor type" value={result.tumor_type ? typeLabel(result.tumor_type) : "—"}
               note={result.confidence !== null ? `${pct(result.confidence)} from the 2D model` : undefined} />
         <Fact label="Whole tumor" value={!is3d ? "Not measured" : found ? cm3(volumes.whole_tumor) : "None found"}
-              note={is3d ? "3D segmentation" : "A 2D slice has no volume"} />
+              note={!is3d ? "A 2D slice has no volume" : corrected
+                ? `Your corrected mask · AI: ${cm3(result.volumes_cm3?.whole_tumor)}` : "3D segmentation"} />
         <Fact label="Location" value={where} note={result.side ? "Rough position rule; confirm on the scan" : undefined} />
       </dl>
 
@@ -47,7 +50,9 @@ export function ResultSummary({ caseId, result, token }: { caseId: string; resul
         )}
         {found && (
           <div className="flex flex-col gap-3">
-            <h3 className="font-semibold">Volumes</h3>
+            <h3 className="font-semibold">
+              Volumes{corrected && <span className="font-normal text-muted-foreground"> · from your corrected mask</span>}
+            </h3>
             <table className="text-[15px]">
               <caption className="sr-only">Tumor volume per region in cubic centimeters</caption>
               <tbody>

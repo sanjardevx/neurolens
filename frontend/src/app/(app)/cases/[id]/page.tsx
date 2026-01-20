@@ -132,8 +132,17 @@ export default function CasePage() {
         </section>
       )}
 
-      {showViewer && <ScanViewer caseId={kase.id} scanId={scan.id} token={token}
-                                  resultId={result?.has_mask && result.scan_id === scan.id ? result.id : null} />}
+      {showViewer && (
+        <ScanViewer
+          caseId={kase.id}
+          scanId={scan.id}
+          token={token}
+          resultId={result?.has_mask && result.scan_id === scan.id ? result.id : null}
+          maskKind={result?.has_corrected_mask ? "corrected" : "mask"}
+          canEdit={role === "doctor" && kase.status === "ready"}
+          onMaskSaved={() => setVersion((v) => v + 1)}
+        />
+      )}
 
       {result && (kase.status === "ready" || kase.status === "reviewed") && (
         <ResultSummary caseId={kase.id} result={result} token={token} />

@@ -70,7 +70,8 @@ export type ResultOut = {
   lobe_estimate: string | null;
   has_mask: boolean;
   has_gradcam: boolean;
-  info: { classifier_input?: string } | null;
+  info: { classifier_input?: string; corrected_mask?: { at: string; volumes_cm3: Record<string, number> } } | null;
+  has_corrected_mask: boolean;
   error: string | null;
   created_at: string;
 };

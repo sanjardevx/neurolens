@@ -3,7 +3,7 @@
 import type { Niivue } from "@niivue/niivue";
 import { useEffect, useRef, useState } from "react";
 
-import { API_URL } from "@/lib/api";
+import { API_URL, upload } from "@/lib/api";
 
 const MRI = [
   ["flair", "FLAIR"],
@@ -40,12 +40,22 @@ function maskColors(shown: Record<Region, boolean>) {
   return lut;
 }
 
+const PEN_SIZES = [
+  ["S", 1],
+  ["M", 3],
+  ["L", 7],
+] as const;
+type Tool = Region | "erase";
+
 /** Dark reading-room viewer for one stored 3D scan: pick the MRI type and the plane, scroll the slices,
- *  and lay the AI mask on top (per region, with opacity). */
-export function ScanViewer({ caseId, scanId, resultId, token }: {
+ *  lay the AI mask on top (per region, with opacity) and, for the case's doctor, fix the mask with a brush. */
+export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMaskSaved, token }: {
   caseId: string;
   scanId: string;
   resultId: string | null;  // the result whose mask to overlay; null while there is none
+  maskKind: "mask" | "corrected";  // the AI's mask, or the doctor's saved correction
+  canEdit: boolean;
+  onMaskSaved: () => void;
   token: string;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -58,6 +68,11 @@ export function ScanViewer({ caseId, scanId, resultId, token }: {
   const [maskOn, setMaskOn] = useState(true);
   const [shown, setShown] = useState<Record<Region, boolean>>({ edema: true, core: true, enhancing: true });
   const [opacity, setOpacity] = useState(0.6);
+  const [editing, setEditing] = useState(false);
+  const [tool, setTool] = useState<Tool>("edema");
+  const [penSize, setPenSize] = useState<number>(3);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // WebGL needs the browser, so NiiVue is loaded and attached only after the page is on screen
   useEffect(() => {
@@ -100,7 +115,7 @@ export function ScanViewer({ caseId, scanId, resultId, token }: {
     nv.loadVolumes([
       // name with the extension tells NiiVue the file format; the URL itself has none
       { url: `${API_URL}/cases/${caseId}/scans/${scanId}/${mri}`, name: `${mri}.nii.gz`, headers },
-      ...(resultId ? [{ url: `${API_URL}/cases/${caseId}/results/${resultId}/mask`, name: "mask.nii.gz", headers }] : []),
+      ...(resultId ? [{ url: `${API_URL}/cases/${caseId}/results/${resultId}/${maskKind}`, name: "mask.nii.gz", headers }] : []),
     ]).then(
       () => {
         if (!live) return;
@@ -113,7 +128,7 @@ export function ScanViewer({ caseId, scanId, resultId, token }: {
     return () => {
       live = false;
     };
-  }, [nvReady, mri, caseId, scanId, resultId, token]);
+  }, [nvReady, mri, caseId, scanId, resultId, maskKind, token]);
 
   // Mask look: which regions, how opaque, on or off. The mask is volume 1 when it exists.
   useEffect(() => {
@@ -121,9 +136,59 @@ export function ScanViewer({ caseId, scanId, resultId, token }: {
     const mask = nv?.volumes[1];
     if (!nv || !mask || state !== "ready") return;
     mask.setColormapLabel(maskColors(shown));
-    nv.setOpacity(1, maskOn ? opacity : 0);
+    // While editing, the drawing layer shows the mask instead; the overlay volume would double it
+    nv.setOpacity(1, maskOn && !editing ? opacity : 0);
+    nv.setDrawOpacity(opacity);
     nv.updateGLVolume();
-  }, [state, maskOn, shown, opacity]);
+  }, [state, maskOn, shown, opacity, editing]);
+
+  // Brush: pen value = BraTS label (0 erases); size in voxels on the slice being drawn
+  useEffect(() => {
+    const nv = nvRef.current;
+    if (!nv || !editing) return;
+    nv.opts.penSize = penSize;
+    nv.setPenValue(tool === "erase" ? 0 : REGIONS.find((r) => r.id === tool)!.value, false);
+  }, [editing, tool, penSize]);
+
+  function startEditing() {
+    const nv = nvRef.current;
+    if (!nv?.volumes[1]) return;
+    // The current mask becomes NiiVue's drawing layer, painted with the same colors as the overlay
+    nv.loadDrawing(nv.volumes[1]);
+    nv.setDrawColormap(maskColors({ edema: true, core: true, enhancing: true }) as unknown as string);
+    nv.setDrawingEnabled(true);
+    setMaskOn(true);
+    setEditError(null);
+    setEditing(true);
+  }
+
+  function stopEditing() {
+    const nv = nvRef.current;
+    nv?.setDrawingEnabled(false);
+    nv?.closeDrawing();
+    setEditing(false);
+  }
+
+  async function saveMask() {
+    const nv = nvRef.current;
+    if (!nv || !resultId) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      // NIfTI of the drawing in the scan's own orientation; the API turns it back onto the mask grid
+      const nifti = await nv.saveImage({ filename: "", isSaveDrawing: true, volumeByIndex: 0 });
+      if (!(nifti instanceof Uint8Array)) throw new Error("Could not read the drawing.");
+      const form = new FormData();
+      form.append("mask", new Blob([nifti as BlobPart]), "corrected.nii");
+      await upload(`/cases/${caseId}/results/${resultId}/mask`, token, form, () => {});
+      stopEditing();
+      onMaskSaved();
+    } catch (e) {
+      setEditError(e instanceof Error ? `The mask was not saved: ${e.message}` : "The mask was not saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   // Plane change, and keep the slice counter in sync with mouse-wheel scrolling inside the canvas
   useEffect(() => {
@@ -151,7 +216,8 @@ export function ScanViewer({ caseId, scanId, resultId, token }: {
   return (
     <section aria-label="Scan viewer" className="flex flex-col gap-3 rounded-xl bg-zinc-950 p-3 text-zinc-100 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Segmented label="MRI type" options={MRI.map(([id, l]) => [id, l])} value={mri} onPick={(v) => setMri(v as Mri)} />
+        <Segmented label="MRI type" options={MRI.map(([id, l]) => [id, l])} value={mri} disabled={editing}
+                   onPick={(v) => setMri(v as Mri)} />
         <Segmented label="Plane" options={VIEWS.map((v) => [v.id, v.label])} value={view.id}
                    onPick={(id) => setView(VIEWS.find((v) => v.id === id)!)} />
       </div>
@@ -186,15 +252,16 @@ export function ScanViewer({ caseId, scanId, resultId, token }: {
           <button
             type="button"
             aria-pressed={maskOn}
+            disabled={editing}
             onClick={() => setMaskOn(!maskOn)}
             className={`min-h-9 rounded-md px-3 font-semibold ${maskOn ? "bg-zinc-100 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
           >
             AI mask {maskOn ? "on" : "off"}
           </button>
-          <fieldset className="flex flex-wrap gap-x-4 gap-y-2" disabled={!maskOn}>
+          <fieldset className="flex flex-wrap gap-x-4 gap-y-2" disabled={!maskOn || editing}>
             <legend className="sr-only">Mask regions</legend>
             {REGIONS.map((r) => (
-              <label key={r.id} className={`flex min-h-9 items-center gap-2 ${maskOn ? "text-zinc-200" : "text-zinc-600"}`}>
+              <label key={r.id} className={`flex min-h-9 items-center gap-2 ${maskOn && !editing ? "text-zinc-200" : "text-zinc-600"}`}>
                 <input
                   type="checkbox"
                   checked={shown[r.id]}
@@ -223,16 +290,54 @@ export function ScanViewer({ caseId, scanId, resultId, token }: {
           </label>
         </div>
       )}
+      {resultId && !editing && (
+        <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
+          <span>{maskKind === "corrected" ? "Showing your corrected mask." : "Showing the AI mask."}</span>
+          {canEdit && (
+            <button type="button" onClick={startEditing} disabled={state !== "ready"}
+                    className="min-h-9 rounded-md border border-zinc-700 px-3 font-semibold text-zinc-100 hover:bg-zinc-900">
+              Fix the mask
+            </button>
+          )}
+        </div>
+      )}
+      {editing && (
+        <div className="flex flex-col gap-3 rounded-lg border border-blue-500/40 bg-zinc-900 p-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented label="Brush" value={tool} onPick={(t) => setTool(t as Tool)}
+                       options={[...REGIONS.map((r) => [r.id, r.label] as const), ["erase", "Eraser"] as const]} />
+            <Segmented label="Brush size" value={String(penSize)} onPick={(v) => setPenSize(Number(v))}
+                       options={PEN_SIZES.map(([l, n]) => [String(n), l] as const)} />
+            <button type="button" onClick={() => nvRef.current?.drawUndo()}
+                    className="min-h-9 rounded-md px-3 font-semibold text-zinc-300 hover:bg-zinc-800">
+              Undo
+            </button>
+          </div>
+          <p className="text-zinc-400">Drag on a slice to paint; scroll to move between slices. The AI&apos;s mask is kept as it was.</p>
+          {editError && <p role="alert" className="rounded-md bg-red-500/15 px-3 py-2 text-red-300">{editError}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={saveMask} disabled={saving}
+                    className="min-h-10 rounded-md bg-blue-600 px-4 font-semibold text-white hover:bg-blue-500 disabled:opacity-60">
+              {saving ? "Saving…" : "Save mask"}
+            </button>
+            <button type="button" onClick={stopEditing} disabled={saving}
+                    className="min-h-10 rounded-md px-4 font-semibold text-zinc-300 hover:bg-zinc-800">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <p className="text-xs text-zinc-500">Radiological view: the patient&apos;s right is on the left (R / L marks on the image).</p>
     </section>
   );
 }
 
-function Segmented({ label, options, value, onPick }: {
+function Segmented({ label, options, value, onPick, disabled }: {
   label: string;
   options: (readonly [string, string])[];
   value: string;
   onPick: (id: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div role="group" aria-label={label} className="flex rounded-lg bg-zinc-900 p-1">
@@ -241,10 +346,11 @@ function Segmented({ label, options, value, onPick }: {
           key={id}
           type="button"
           aria-pressed={value === id}
+          disabled={disabled}
           onClick={() => onPick(id)}
           className={`min-h-9 rounded-md px-3 text-[13px] font-semibold ${
             value === id ? "bg-zinc-100 text-zinc-950" : "text-zinc-400 hover:text-zinc-100"
-          }`}
+          } disabled:opacity-50`}
         >
           {text}
         </button>
