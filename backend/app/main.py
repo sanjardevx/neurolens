@@ -80,9 +80,13 @@ class CaseRow(CaseOut):
     def of(cls, case: Case) -> "CaseRow":
         result = max(case.results, key=lambda r: r.created_at, default=None)
         review = max(case.reviews, key=lambda r: r.created_at, default=None)
-        volumes = (result and result.volumes_cm3) or {}
+        # The doctor's corrections win over the AI: their tumor type and their mask's volume
+        corrected = ((result and result.info) or {}).get("corrected_mask") or {}
+        volumes = corrected.get("volumes_cm3") or (result and result.volumes_cm3) or {}
+        tumor_type = (review and review.corrected_type) or (result and result.tumor_type)
         return cls.model_validate(case).model_copy(update={
-            "tumor_type": result and result.tumor_type, "confidence": result and result.confidence,
+            # the AI's confidence was for its own type, so it means nothing next to the doctor's type
+            "tumor_type": tumor_type, "confidence": None if review and review.corrected_type else result and result.confidence,
             "tumor_cm3": volumes.get("whole_tumor"), "progress": result and result.progress,
             "error": result and result.error, "decision": review and review.decision})
 
@@ -124,7 +128,7 @@ class ResultOut(BaseModel):
 
 
 class ReviewIn(BaseModel):
-    """approved: the AI result is right. edited: right with changes (report text and / or tumor type).
+    """approved: the AI result is right. edited: right with changes (tumor type, report text and / or the mask).
     rejected: not usable, with a reason (Week 9 retraining learns from edits and rejections)."""
     result_id: str
     decision: Literal[DECISIONS]
@@ -141,8 +145,6 @@ class ReviewIn(BaseModel):
             raise ValueError("reason 'other' needs a note")
         if self.decision != "rejected" and self.reason is not None:
             raise ValueError("a reason is only for rejections")
-        if self.decision == "edited" and not (self.report_text or self.corrected_type):
-            raise ValueError("an edit needs report text or a corrected tumor type")
         if self.decision == "approved" and self.corrected_type:
             raise ValueError("changing the tumor type is an edit, not an approval")
         return self
@@ -368,6 +370,14 @@ def register_routes(app: FastAPI) -> None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Result not found")
         if result.progress < 100 or result.error:
             raise HTTPException(status.HTTP_409_CONFLICT, "The analysis is not finished; nothing to review yet")
+        # A corrected mask is a change too: then "approved" would claim the AI was right as it was
+        mask_fixed = bool((result.info or {}).get("corrected_mask"))
+        if body.decision == "edited" and not (body.report_text or body.corrected_type or mask_fixed):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "An edit needs a corrected tumor type, report text or a corrected mask")
+        if body.decision == "approved" and mask_fixed:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "The mask was corrected, so this is an edit, not a plain approval")
         review = Review(case_id=case.id, doctor_id=user.id, **body.model_dump())
         db.add(review)
         case.status = "reviewed"
@@ -377,6 +387,17 @@ def register_routes(app: FastAPI) -> None:
               corrected_type=body.corrected_type)
         db.commit()
         return review
+
+    @app.post("/cases/{case_id}/reopen", response_model=CaseOut)
+    def reopen_case(case_id: str, user: User = Depends(require("doctor")), db: Session = Depends(get_db)) -> Case:
+        """"Change decision": the case needs review again (e.g. to fix the mask). Past reviews stay in the history."""
+        case = get_case_for(db, user, case_id)
+        if case.status != "reviewed":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Only a reviewed case can be reopened")
+        case.status = "ready"
+        audit(db, user, "review.reopen", case.id)
+        db.commit()
+        return case
 
     @app.get("/cases/{case_id}/reviews", response_model=list[ReviewOut])
     def list_reviews(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list:

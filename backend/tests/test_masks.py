@@ -92,3 +92,39 @@ def test_a_2d_result_has_no_mask_to_correct(client):
     [result] = client.get(f"/cases/{case['id']}/results", headers=DOCTOR_A).json()
     img = nib.Nifti1Image(np.zeros((4, 4, 4), np.uint8), np.eye(4))
     assert send(client, case, result, img).status_code == 409
+
+
+def test_a_corrected_mask_makes_the_decision_an_edit(client, done):
+    case, result = done
+    send(client, case, result, with_edema(ai_mask(client, case, result)))
+    url = f"/cases/{case['id']}/reviews"
+    approve = client.post(url, headers=DOCTOR_A, json={"result_id": result["id"], "decision": "approved"})
+    assert approve.status_code == 422 and "edit" in approve.json()["detail"]
+    edit = client.post(url, headers=DOCTOR_A, json={"result_id": result["id"], "decision": "edited", "note": "edema added"})
+    assert edit.status_code == 201 and edit.json()["decision"] == "edited"
+
+
+def test_change_decision_reopens_the_case_for_another_fix(client, done):
+    case, result = done
+    url = f"/cases/{case['id']}"
+    client.post(f"{url}/reviews", headers=DOCTOR_A, json={"result_id": result["id"], "decision": "approved"})
+    assert client.post(f"{url}/reopen", headers=DOCTOR_B).status_code == 404
+    r = client.post(f"{url}/reopen", headers=DOCTOR_A)
+    assert r.status_code == 200 and r.json()["status"] == "ready"
+    assert client.post(f"{url}/reopen", headers=DOCTOR_A).status_code == 409  # already open
+    assert send(client, case, result, with_edema(ai_mask(client, case, result))).status_code == 200
+    client.post(f"{url}/reviews", headers=DOCTOR_A, json={"result_id": result["id"], "decision": "edited"})
+    history = client.get(f"{url}/reviews", headers=DOCTOR_A).json()
+    assert [h["decision"] for h in history] == ["edited", "approved"]  # newest first, nothing lost
+    actions = [e["action"] for e in client.get("/audit", headers=ADMIN).json() if e["case_id"] == case["id"]]
+    assert "review.reopen" in actions
+
+
+def test_worklist_shows_the_doctors_type_and_volume(client, done):
+    case, result = done
+    send(client, case, result, with_edema(ai_mask(client, case, result)))
+    client.post(f"/cases/{case['id']}/reviews", headers=DOCTOR_A,
+                json={"result_id": result["id"], "decision": "edited", "corrected_type": "meningioma"})
+    row = next(c for c in client.get("/cases", headers=DOCTOR_A).json() if c["id"] == case["id"])
+    assert row["tumor_type"] == "meningioma" and row["decision"] == "edited" and row["confidence"] is None
+    assert row["tumor_cm3"] == round(result["volumes_cm3"]["whole_tumor"] + 1.0, 2)
