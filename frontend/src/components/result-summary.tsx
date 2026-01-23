@@ -15,7 +15,12 @@ const cm3 = (v: number | undefined) => (v === undefined ? "—" : `${v.toFixed(1
 const pct = (p: number) => `${Math.round(p * 100)}%`;
 const typeLabel = (t: string) => TUMOR_LABELS[t] ?? t;
 
-export function ResultSummary({ caseId, result, token }: { caseId: string; result: ResultOut; token: string }) {
+export function ResultSummary({ caseId, result, reviewed, token }: {
+  caseId: string;
+  result: ResultOut;
+  reviewed: boolean;
+  token: string;
+}) {
   // After the doctor fixed the mask, its volumes are the ones that count; the AI's stay for comparison
   const corrected = result.info?.corrected_mask?.volumes_cm3 ?? null;
   const volumes = corrected ?? result.volumes_cm3;
@@ -29,7 +34,7 @@ export function ResultSummary({ caseId, result, token }: { caseId: string; resul
   return (
     <section className="flex flex-col gap-6 rounded-xl border bg-background p-5 sm:p-6" aria-labelledby="result-title">
       <h2 id="result-title" className="text-lg font-semibold">
-        AI result <span className="font-normal text-muted-foreground">· a draft until you approve it</span>
+        AI result <span className="font-normal text-muted-foreground">· {reviewed ? "reviewed by the doctor" : "a draft until you approve it"}</span>
       </h2>
 
       <dl className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4">

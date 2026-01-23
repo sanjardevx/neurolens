@@ -20,7 +20,7 @@ export function statusOf(c: Pick<CaseRow, "status" | "progress" | "decision">): 
       return ["Failed", PILL.muted];
     case "reviewed":
       if (c.decision === "rejected") return ["Rejected", PILL.rejected];
-      return [c.decision === "edited" ? "Edited" : "Approved", PILL.approved];
+      return [c.decision === "edited" ? "Approved with edits" : "Approved", PILL.approved];
   }
 }
 

@@ -100,3 +100,13 @@ export function upload<T>(path: string, token: string, form: FormData, onProgres
     xhr.send(form);
   });
 }
+
+export type ReviewOut = {
+  id: string;
+  result_id: string;
+  decision: "approved" | "edited" | "rejected";
+  reason: "wrong_type" | "bad_mask" | "artifact" | "other" | null;
+  note: string | null;
+  corrected_type: string | null;
+  created_at: string;
+};

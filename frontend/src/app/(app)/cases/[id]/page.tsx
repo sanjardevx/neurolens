@@ -6,10 +6,11 @@ import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/session";
 import { ResultSummary } from "@/components/result-summary";
+import { ReviewPanel } from "@/components/review-panel";
 import { ScanViewer } from "@/components/scan-viewer";
 import { Progress, UploadForm } from "@/components/upload-form";
 import { ErrorNote, Skeleton } from "@/components/states";
-import { api, type ApiError, type CaseOut, type ResultOut, type ScanOut } from "@/lib/api";
+import { api, type ApiError, type CaseOut, type ResultOut, type ReviewOut, type ScanOut } from "@/lib/api";
 import { statusOf, whenOf } from "@/lib/cases";
 
 const POLL_MS = 2000;
@@ -20,6 +21,7 @@ export default function CasePage() {
   const [kase, setCase] = useState<CaseOut | null>(null);
   const [result, setResult] = useState<ResultOut | null>(null);
   const [scans, setScans] = useState<ScanOut[]>([]);
+  const [review, setReview] = useState<ReviewOut | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [offline, setOffline] = useState(false);  // a progress poll failed; it keeps trying
   const [version, setVersion] = useState(0);  // bump to read the case again (after upload, when the AI ends)
@@ -30,12 +32,14 @@ export default function CasePage() {
       api<CaseOut>(`/cases/${id}`, token),
       api<ResultOut[]>(`/cases/${id}/results`, token),
       api<ScanOut[]>(`/cases/${id}/scans`, token),
+      api<ReviewOut[]>(`/cases/${id}/reviews`, token),
     ]).then(
-      ([c, results, s]) => {
+      ([c, results, s, reviews]) => {
         if (!live) return;
         setCase(c);
         setResult(results[0] ?? null);
         setScans(s);
+        setReview(reviews[0] ?? null);  // newest first
         setError(null);
         setOffline(false);
       },
@@ -87,7 +91,7 @@ export default function CasePage() {
     );
   }
 
-  const [label, pill] = statusOf({ status: kase.status, progress: result?.progress ?? null, decision: null });
+  const [label, pill] = statusOf({ status: kase.status, progress: result?.progress ?? null, decision: review?.decision ?? null });
   const canUpload = role === "doctor" && (kase.status === "new" || kase.status === "failed");
   // The scan the latest result was made from (or the newest upload); only 3D scans open in the viewer
   const scan = scans.find((s) => s.id === result?.scan_id) ?? scans.toSorted((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -101,9 +105,7 @@ export default function CasePage() {
           <h1 className="font-mono text-3xl font-bold tracking-tight">{kase.code}</h1>
           <p className="text-muted-foreground">Created {whenOf(kase.created_at)} · no patient name is stored</p>
         </div>
-        {kase.status !== "reviewed" && (
-          <span className={`rounded-full px-3 py-1.5 text-sm font-semibold tabular-nums ${pill}`}>{label}</span>
-        )}
+        <span className={`rounded-full px-3 py-1.5 text-sm font-semibold tabular-nums ${pill}`}>{label}</span>
       </header>
 
       {(offline || error) && (
@@ -145,7 +147,19 @@ export default function CasePage() {
       )}
 
       {result && (kase.status === "ready" || kase.status === "reviewed") && (
-        <ResultSummary caseId={kase.id} result={result} token={token} />
+        <>
+          <ResultSummary caseId={kase.id} result={result} reviewed={kase.status === "reviewed"} token={token} />
+          <ReviewPanel
+            key={`${kase.status}-${review?.id}`}  // a fresh form after each decision or reopen
+            caseId={kase.id}
+            result={result}
+            review={review}
+            reviewed={kase.status === "reviewed"}
+            canDecide={role === "doctor"}
+            token={token}
+            onChanged={() => setVersion((v) => v + 1)}
+          />
+        </>
       )}
     </>
   );
