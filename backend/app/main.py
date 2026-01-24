@@ -5,7 +5,7 @@
 import secrets
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,6 +25,7 @@ from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Rev
 from .masks import CORRECTED, MaskError, changed_voxels, read_corrected, save_corrected
 from .scans import MODALITIES, ScanError, check_image, check_volumes, read_image, read_volume, save_image, save_volume
 
+VIEW_LOG_GAP = timedelta(minutes=1)  # one "opened the case" entry per person and case per minute
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L: easy to read out loud
 
 
@@ -55,7 +56,8 @@ def get_db(request: Request) -> Iterator[Session]:
 
 
 def audit(db: Session, user: User, action: str, case_id: str | None = None, **detail: Any) -> None:
-    db.add(AuditLog(user_id=user.id, role=user.role, action=action, case_id=case_id, detail=detail or None))
+    db.add(AuditLog(user_id=user.id, user_email=user.email, role=user.role, action=action, case_id=case_id,
+                    detail=detail or None))
 
 
 class CaseOut(BaseModel):
@@ -170,12 +172,13 @@ class MeOut(BaseModel):
 
 
 class AuditOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     at: datetime
     user_id: str
+    user_email: str | None
     role: str
     action: str
     case_id: str | None
+    case_code: str | None
     detail: dict[str, Any] | None
 
 
@@ -261,8 +264,14 @@ def register_routes(app: FastAPI) -> None:
     @app.get("/cases/{case_id}", response_model=CaseOut)
     def read_case(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> Case:
         case = get_case_for(db, user, case_id)
-        audit(db, user, "case.view", case.id)  # reading a case is logged too: medical data access is audited
-        db.commit()
+        # Reading a case is logged too (medical data access is audited), but the page re-reads it after
+        # each action; one entry per minute keeps the log readable without hiding a real visit
+        since = datetime.now(UTC) - VIEW_LOG_GAP
+        seen = db.scalar(select(AuditLog.id).where(AuditLog.user_id == user.id, AuditLog.case_id == case.id,
+                                                   AuditLog.action == "case.view", AuditLog.at > since).limit(1))
+        if seen is None:
+            audit(db, user, "case.view", case.id)
+            db.commit()
         return case
 
     @app.post("/cases/{case_id}/scans", response_model=ScanOut, status_code=status.HTTP_201_CREATED)
@@ -404,8 +413,17 @@ def register_routes(app: FastAPI) -> None:
         return sorted(get_case_for(db, user, case_id).reviews, key=lambda r: r.created_at, reverse=True)
 
     @app.get("/audit", response_model=list[AuditOut])
-    def audit_log(limit: int = 200, user: User = Depends(require("admin")), db: Session = Depends(get_db)) -> list:
-        return list(db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 1000))))
+    def audit_log(limit: int = 200, action: str | None = None, case_code: str | None = None,
+                  user: User = Depends(require("admin")), db: Session = Depends(get_db)) -> list[AuditOut]:
+        """Newest first. action: a prefix such as "review." or "mask."; case_code: e.g. NL-7KQ2XD."""
+        query = (select(AuditLog, Case.code).outerjoin(Case, Case.id == AuditLog.case_id)
+                 .order_by(AuditLog.id.desc()).limit(min(limit, 1000)))
+        if action:
+            query = query.where(AuditLog.action.startswith(action))
+        if case_code:
+            query = query.where(Case.code == case_code.strip().upper())
+        return [AuditOut(at=e.at, user_id=e.user_id, user_email=e.user_email, role=e.role, action=e.action,
+                         case_id=e.case_id, case_code=code, detail=e.detail) for e, code in db.execute(query)]
 
 
 app = create_app()

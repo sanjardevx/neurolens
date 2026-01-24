@@ -115,5 +115,5 @@ def analyze(db: Database, storage: Path, models: Models, result_id: str, user: U
             result.error = f"{type(e).__name__}: {e}"[:500]
             case.status = "failed"
             action, detail = "analysis.failed", {"result_id": result.id, "error": result.error}
-        s.add(AuditLog(user_id=user.id, role=user.role, action=action, case_id=case.id, detail=detail))
+        s.add(AuditLog(user_id=user.id, user_email=user.email, role=user.role, action=action, case_id=case.id, detail=detail))
         s.commit()

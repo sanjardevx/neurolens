@@ -45,6 +45,19 @@ def test_actions_are_written_to_the_audit_log(client):
     assert [(e["action"], e["user_id"], e["role"]) for e in log] == [
         ("case.view", "admin-1", "admin"), ("case.create", "doctor-a", "doctor")]
     assert log[1]["case_id"] == case["id"] and log[1]["detail"] == {"code": case["code"]}
+    # Readable for admins: the staff login and the case code, not only ids
+    assert log[1]["user_email"] == "a@clinic.test" and log[0]["user_email"] == "admin@clinic.test"
+    assert log[0]["case_code"] == log[1]["case_code"] == case["code"]
+
+
+def test_audit_log_filters_by_action_and_case(client):
+    a = client.post("/cases", headers=DOCTOR_A).json()
+    b = client.post("/cases", headers=DOCTOR_A).json()
+    client.get(f"/cases/{a['id']}", headers=ADMIN)
+    views = client.get("/audit", headers=ADMIN, params={"action": "case.view"}).json()
+    assert [e["case_code"] for e in views] == [a["code"]]
+    only_b = client.get("/audit", headers=ADMIN, params={"case_code": b["code"].lower()}).json()
+    assert [e["action"] for e in only_b] == ["case.create"]
 
 
 def test_only_admins_read_the_audit_log(client):
@@ -58,3 +71,12 @@ def test_dashboard_origin_may_call_the_api(client):
     assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "http://localhost:3000"
     other = client.options("/cases", headers={**preflight, "Origin": "https://evil.test"})
     assert "access-control-allow-origin" not in other.headers
+
+
+def test_repeated_views_within_a_minute_are_logged_once(client):
+    case = client.post("/cases", headers=DOCTOR_A).json()
+    for _ in range(3):
+        client.get(f"/cases/{case['id']}", headers=DOCTOR_A)
+    client.get(f"/cases/{case['id']}", headers=ADMIN)  # another person is a new view
+    views = client.get("/audit", headers=ADMIN, params={"action": "case.view"}).json()
+    assert [e["user_id"] for e in views] == ["admin-1", "doctor-a"]

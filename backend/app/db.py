@@ -109,6 +109,7 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
     user_id: Mapped[str] = mapped_column(String(36), index=True)
+    user_email: Mapped[str | None] = mapped_column(String(320), default=None)  # staff login, so admins can read "who"
     role: Mapped[str] = mapped_column(String(16))
     action: Mapped[str] = mapped_column(String(32))  # e.g. case.create, case.view, review.approve
     case_id: Mapped[str | None] = mapped_column(String(36), index=True, default=None)
@@ -130,6 +131,8 @@ def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
     if engine.dialect.name == "postgresql":
         with engine.begin() as conn:
+            # create_all doesn't add columns to existing tables; this one came after the first deploy
+            conn.execute(text("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_email VARCHAR(320)"))
             for table in Base.metadata.tables:
                 conn.execute(text(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY'))
 
