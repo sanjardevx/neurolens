@@ -29,6 +29,7 @@ doctor login → new case (anonymous ID) → upload 3D MRI → quality check
 - **Explainability.** Every prediction comes with a Grad-CAM heatmap, so a wrong answer is easy to spot.
 - **CPU serving without PyTorch.** Both models run in ONNX Runtime with numpy-only pre- and post-processing, inside a FastAPI service in Docker. Each step is tested to match the PyTorch / MONAI pipeline (classifier: 710 / 710 val images; 3D: masks agree at Dice ≥ 0.9997 on real scans). On a laptop CPU: 0.06 s per 2D slice, 13-20 s per 3D scan.
 - **Privacy by design.** DICOM headers are never stored: a series becomes a volume of pixels + position, with a short allowlist of technical tags. Cases have anonymous codes, never names. Tested with a fake patient whose name and ID must not appear anywhere.
+- **Doctor in the loop.** A 3D viewer (NiiVue) shows the scan with the AI mask per region; the doctor can fix the mask with a brush, then approve, edit or reject with a reason. The AI's own mask is kept next to the correction, so the difference can train the next model.
 - **A worklist built for reading.** Cases waiting for review come first, largest tumors on top. Upload shows real progress, the AI job reports its own progress, and every result is labeled a draft until a doctor approves it.
 - **Doctor-only, audited access.** Supabase login with two roles (doctor, admin). A doctor only reaches their own cases; every endpoint is tested with every kind of caller. Uploads, analyses and review decisions go to an audit log.
 
@@ -139,7 +140,7 @@ ml/data/        data splits and data reports (no images in git)
 ml/results/     metrics, confusion matrices, Grad-CAM figures
 ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 backend/        FastAPI + ONNX Runtime: login, cases, upload, AI jobs, review, audit log (see backend/README.md)
-frontend/       Next.js dashboard for doctors: login, worklist, upload, AI results (see frontend/README.md)
+frontend/       Next.js dashboard for doctors: login, worklist, upload, 3D review, audit log (see frontend/README.md)
 ```
 
 ## Run it
