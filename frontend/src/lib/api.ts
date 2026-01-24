@@ -110,3 +110,14 @@ export type ReviewOut = {
   corrected_type: string | null;
   created_at: string;
 };
+
+export type AuditEntry = {
+  at: string;
+  user_id: string;
+  user_email: string | null;
+  role: string;
+  action: string;
+  case_id: string | null;
+  case_code: string | null;
+  detail: Record<string, unknown> | null;
+};
