@@ -5,6 +5,7 @@
 import secrets
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -23,6 +24,7 @@ from .auth import User, current_user, require
 from .config import get_settings
 from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Review, Scan, init_db
 from .masks import CORRECTED, MaskError, changed_voxels, read_corrected, save_corrected
+from .report import as_text, features, template_report
 from .scans import MODALITIES, ScanError, check_image, check_volumes, read_image, read_volume, save_image, save_volume
 
 VIEW_LOG_GAP = timedelta(minutes=1)  # one "opened the case" entry per person and case per minute
@@ -327,6 +329,23 @@ def register_routes(app: FastAPI) -> None:
     def list_results(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list:
         case = get_case_for(db, user, case_id)
         return [ResultOut.of(r) for r in sorted(case.results, key=lambda r: r.created_at, reverse=True)]
+
+    # Registered before the {kind} file route below, which would otherwise catch ".../report"
+    @app.get("/cases/{case_id}/results/{result_id}/report")
+    def report_draft(case_id: str, result_id: str, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)) -> dict:
+        """Report draft from the numbers only (type, confidence, volumes, location), with the doctor's
+        corrections (type, mask) taking priority. The LLM rewording comes on top of this later."""
+        case = get_case_for(db, user, case_id)
+        result = db.get(Result, result_id)
+        if result is None or result.case_id != case.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Result not found")
+        if result.progress < 100 or result.error:
+            raise HTTPException(status.HTTP_409_CONFLICT, "The analysis is not finished; no report yet")
+        review = max((r for r in case.reviews if r.result_id == result.id), key=lambda r: r.created_at, default=None)
+        f = features(result, review)
+        report = template_report(f)
+        return {"provider": "template", "report": report, "text": as_text(report), "features": asdict(f)}
 
     @app.get("/cases/{case_id}/results/{result_id}/{kind}")
     def result_file(case_id: str, result_id: str, kind: str, request: Request,
