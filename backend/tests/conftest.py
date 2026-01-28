@@ -51,5 +51,6 @@ def client(tmp_path):
     app = create_app("sqlite://", storage_dir=str(tmp_path / "storage"), model_dir=str(models))
     verifier = LocalKeyVerifier(Settings(supabase_url=ISSUER_URL))
     app.dependency_overrides[get_verifier] = lambda: verifier
+    app.state.llm = None  # never call a real LLM from tests, whatever .env says; tests plug in a fake
     with TestClient(app) as c:  # runs startup: creates the tables
         yield c

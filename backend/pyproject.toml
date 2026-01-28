@@ -13,6 +13,7 @@ dependencies = [
     "sqlalchemy>=2",
     "psycopg[binary]",
     "pyjwt[crypto]",
+    "httpx",  # LLM client
     "pydantic-settings",
     "python-multipart",
     "numpy",
@@ -25,7 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "httpx", "onnx"]  # onnx: builds the stand-in models in tests
+dev = ["pytest", "onnx"]  # onnx: builds the stand-in models in tests
 
 [tool.setuptools.packages.find]
 include = ["app*"]

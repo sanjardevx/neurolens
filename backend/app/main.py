@@ -2,6 +2,8 @@
 
     uvicorn app.main:app --reload
 """
+import hashlib
+import json
 import secrets
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
@@ -23,6 +25,7 @@ from .analysis import Models, analyze, model_version
 from .auth import User, current_user, require
 from .config import get_settings
 from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Review, Scan, init_db
+from .llm import LLM, LLMError
 from .masks import CORRECTED, MaskError, changed_voxels, read_corrected, save_corrected
 from .report import as_text, features, template_report
 from .scans import MODALITIES, ScanError, check_image, check_volumes, read_image, read_volume, save_image, save_volume
@@ -46,6 +49,8 @@ def create_app(database_url: str | None = None, storage_dir: str | None = None, 
     app.state.storage = Path(storage_dir or settings.storage_dir)
     app.state.models = Models(model_dir or settings.model_dir)
     app.state.max_upload_bytes = settings.max_upload_mb * 1024 * 1024
+    app.state.llm = (LLM(settings.llm_base_url, settings.llm_api_key, settings.llm_model, settings.llm_timeout_s)
+                     if settings.report_provider == "llm" and settings.llm_base_url else None)
     # The dashboard runs on another origin; the token goes in a header, so no cookies are allowed
     app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
                        allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
@@ -330,12 +335,7 @@ def register_routes(app: FastAPI) -> None:
         case = get_case_for(db, user, case_id)
         return [ResultOut.of(r) for r in sorted(case.results, key=lambda r: r.created_at, reverse=True)]
 
-    # Registered before the {kind} file route below, which would otherwise catch ".../report"
-    @app.get("/cases/{case_id}/results/{result_id}/report")
-    def report_draft(case_id: str, result_id: str, user: User = Depends(current_user),
-                     db: Session = Depends(get_db)) -> dict:
-        """Report draft from the numbers only (type, confidence, volumes, location), with the doctor's
-        corrections (type, mask) taking priority. The LLM rewording comes on top of this later."""
+    def report_inputs(db: Session, user: User, case_id: str, result_id: str):
         case = get_case_for(db, user, case_id)
         result = db.get(Result, result_id)
         if result is None or result.case_id != case.id:
@@ -344,8 +344,48 @@ def register_routes(app: FastAPI) -> None:
             raise HTTPException(status.HTTP_409_CONFLICT, "The analysis is not finished; no report yet")
         review = max((r for r in case.reviews if r.result_id == result.id), key=lambda r: r.created_at, default=None)
         f = features(result, review)
-        report = template_report(f)
-        return {"provider": "template", "report": report, "text": as_text(report), "features": asdict(f)}
+        # The saved AI draft is only valid for the exact numbers it was written from
+        key = hashlib.sha256(json.dumps(asdict(f), sort_keys=True).encode()).hexdigest()[:16]
+        return case, result, f, key
+
+    def report_out(f, report: dict, provider: str, model: str | None = None, fallback: str | None = None) -> dict:
+        return {"provider": provider, "model": model, "fallback": fallback, "report": report,
+                "text": as_text(report), "features": asdict(f)}
+
+    # Registered before the {kind} file route below, which would otherwise catch ".../report"
+    @app.get("/cases/{case_id}/results/{result_id}/report")
+    def report_draft(case_id: str, result_id: str, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)) -> dict:
+        """The current draft: the saved AI wording if it still matches the numbers, else the template
+        (from the numbers only, with the doctor's type and mask corrections taking priority). No LLM call."""
+        _, result, f, key = report_inputs(db, user, case_id, result_id)
+        saved = (result.info or {}).get("report_draft")
+        if saved and saved["features_key"] == key:
+            return report_out(f, saved["report"], "llm", saved["model"])
+        return report_out(f, template_report(f), "template")
+
+    @app.post("/cases/{case_id}/results/{result_id}/report/draft")
+    def draft_with_llm(case_id: str, result_id: str, request: Request, user: User = Depends(require("doctor")),
+                       db: Session = Depends(get_db)) -> dict:
+        """Ask the LLM to reword the template (costs credit, so only on request). It sees the numbers only;
+        on any error or failed check the template is returned with the reason."""
+        case, result, f, key = report_inputs(db, user, case_id, result_id)
+        template = template_report(f)
+        llm: LLM | None = request.app.state.llm
+        if llm is None:
+            return report_out(f, template, "template", fallback="No LLM is set up (REPORT_PROVIDER=llm in .env)")
+        try:
+            report = llm.rewrite(f, template)
+        except LLMError as e:
+            audit(db, user, "report.draft", case.id, result_id=result.id, model=llm.model, fallback=str(e))
+            db.commit()
+            return report_out(f, template, "template", llm.model, str(e))
+        result.info = {**(result.info or {}), "report_draft": {
+            "features_key": key, "report": report, "model": llm.model,
+            "at": datetime.now(UTC).isoformat(timespec="seconds")}}
+        audit(db, user, "report.draft", case.id, result_id=result.id, model=llm.model)
+        db.commit()
+        return report_out(f, report, "llm", llm.model)
 
     @app.get("/cases/{case_id}/results/{result_id}/{kind}")
     def result_file(case_id: str, result_id: str, kind: str, request: Request,

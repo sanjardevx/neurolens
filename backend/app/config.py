@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     model_dir: str = "./models"
     # Browser origins allowed to call the API (the dashboard), comma-separated
     cors_origins: str = "http://localhost:3000"
+    # Report drafts: "template" only, or "llm" to also reword them with an OpenAI-compatible model
+    report_provider: str = "template"
+    llm_base_url: str = ""  # e.g. https://ollama.com/v1 or http://localhost:11434/v1
+    llm_api_key: str = ""
+    llm_model: str = "gpt-oss:120b"
+    llm_timeout_s: float = 60
 
 
 @lru_cache

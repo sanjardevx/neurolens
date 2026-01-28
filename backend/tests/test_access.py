@@ -26,6 +26,7 @@ ENDPOINTS = [
     ("GET", "/cases/{case}/scans/{scan}/image", (200, 404, 200, 401, 403)),
     ("GET", "/cases/{case}/results/{result}/gradcam", (200, 404, 200, 401, 403)),
     ("GET", "/cases/{case}/results/{result}/report", (200, 404, 200, 401, 403)),
+    ("POST", "/cases/{case}/results/{result}/report/draft", (200, 404, 403, 401, 403)),
     ("POST", "/cases/{case}/results/{result}/mask", (409, 404, 403, 401, 403)),  # 409: a 2D result has no mask
     ("POST", "/cases/{case}/reviews", (201, 404, 403, 401, 403)),
     ("GET", "/cases/{case}/reviews", (200, 404, 200, 401, 403)),
