@@ -81,3 +81,14 @@ every decision stay in the audit log. Edits and rejections are the training sign
   only this API (database owner connection) reads and writes.
 - **DICOM headers are never stored.** A series becomes a NIfTI volume (pixels + position in space, RAS orientation); only technical tags are kept (modality, body part, field strength, slice thickness, TR, TE): no names, IDs, dates, hospital or free text. NIfTI files get a fresh header; images are re-encoded as PNG without EXIF. Text burned into the pixels is not removed.
 - Creating and opening a case, uploads, rejected uploads, finished / failed analyses and every review decision are written to `audit_log`.
+
+## Report drafts
+
+`GET /cases/{id}/results/{rid}/report` returns the current draft: findings, impression and notes written by a
+template from the numbers only (tumor type, confidence, volumes, side, rough lobe), with the doctor's type and
+mask corrections taking priority. `POST .../report/draft` asks an LLM to reword it, through one OpenAI-compatible
+client set in `.env` (`REPORT_PROVIDER=llm`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`; Ollama Cloud or local
+Ollama). The LLM never sees the image. Its answer is refused, and the template returned with the reason, if it
+adds a number, names a tumor type the draft didn't, drops a sentence or isn't valid JSON. A saved LLM draft is
+only reused while the numbers it was written from stay the same.
+
