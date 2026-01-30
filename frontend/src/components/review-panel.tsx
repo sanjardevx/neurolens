@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { ReportEditor } from "@/components/report-editor";
 import { ErrorNote } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +33,7 @@ export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token
   const [note, setNote] = useState("");
   const [type, setType] = useState(result.tumor_type ?? "");
   const [reason, setReason] = useState<Reason | null>(null);
+  const [report, setReport] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const maskFixed = result.has_corrected_mask;
@@ -66,6 +68,12 @@ export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token
           <p>Tumor type changed to <strong>{TUMOR_LABELS[review.corrected_type] ?? review.corrected_type}</strong>.</p>
         )}
         {review.note && <p className="whitespace-pre-wrap rounded-lg bg-muted/60 px-4 py-3">{review.note}</p>}
+        {review.report_text && (
+          <div className="flex flex-col gap-1">
+            <h3 className="text-sm font-medium">Final report</h3>
+            <pre className="whitespace-pre-wrap rounded-lg border px-4 py-3 font-mono text-[13px] leading-relaxed">{review.report_text}</pre>
+          </div>
+        )}
         {error && <ErrorNote message={error} />}
         {canDecide && (
           <Button variant="outline" className="h-10 w-fit" disabled={busy} onClick={() => send(`/cases/${caseId}/reopen`)}>
@@ -100,7 +108,9 @@ export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token
               </label>
             ))}
           </div>
-          <p className="text-sm text-muted-foreground">To fix the outline, use &quot;Fix the mask&quot; in the viewer above.</p>
+          <p className="text-sm text-muted-foreground">
+            To fix the outline, use &quot;Fix the mask&quot; in the viewer above. If you change the type, update the report text too.
+          </p>
         </fieldset>
       )}
 
@@ -119,13 +129,17 @@ export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token
         </fieldset>
       )}
 
+      {step !== "reject" && (
+        <ReportEditor path={`/cases/${caseId}/results/${result.id}/report`} token={token} text={report} onText={setReport} />
+      )}
+
       {error && <ErrorNote message={error} />}
 
       <div className="flex flex-wrap gap-2">
         {step === "open" && (
           <>
             {/* After a mask fix the AI was not right as it was, so the same button records an edit */}
-            <Button className="h-11 px-6 font-semibold" disabled={busy} onClick={() => decide(maskFixed ? "edited" : "approved")}>
+            <Button className="h-11 px-6 font-semibold" disabled={busy} onClick={() => decide(maskFixed ? "edited" : "approved", { report_text: report?.trim() || null })}>
               {maskFixed ? "Approve with your mask edits" : "Approve"}
             </Button>
             <Button variant="outline" className="h-11" disabled={busy} onClick={() => setStep("edit")}>Edit type</Button>
@@ -136,7 +150,10 @@ export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token
           <>
             <Button className="h-11 px-6 font-semibold"
                     disabled={busy || (type === result.tumor_type && !maskFixed)}
-                    onClick={() => decide("edited", type !== result.tumor_type ? { corrected_type: type } : {})}>
+                    onClick={() => decide("edited", {
+                      report_text: report?.trim() || null,
+                      ...(type !== result.tumor_type ? { corrected_type: type } : {}),
+                    })}>
               Save and approve
             </Button>
             <Button variant="ghost" className="h-11" disabled={busy} onClick={() => setStep("open")}>Cancel</Button>

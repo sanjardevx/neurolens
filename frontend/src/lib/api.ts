@@ -108,7 +108,15 @@ export type ReviewOut = {
   reason: "wrong_type" | "bad_mask" | "artifact" | "other" | null;
   note: string | null;
   corrected_type: string | null;
+  report_text: string | null;
   created_at: string;
+};
+
+export type ReportOut = {
+  provider: "template" | "llm";
+  model: string | null;
+  fallback: string | null;  // why the LLM wording was not used
+  text: string;
 };
 
 export type AuditEntry = {
