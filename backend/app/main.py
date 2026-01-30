@@ -154,6 +154,8 @@ class ReviewIn(BaseModel):
             raise ValueError("reason 'other' needs a note")
         if self.decision != "rejected" and self.reason is not None:
             raise ValueError("a reason is only for rejections")
+        if self.decision == "rejected" and self.report_text:
+            raise ValueError("a rejected result has no report")
         if self.decision == "approved" and self.corrected_type:
             raise ValueError("changing the tumor type is an edit, not an approval")
         return self

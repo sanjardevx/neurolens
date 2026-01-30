@@ -46,8 +46,9 @@ def test_reject_with_reason(client, ready):
     {"decision": "edited"},  # an edit with no change
     {"decision": "edited", "corrected_type": "lymphoma"},  # not one of the 4 classes
     {"decision": "maybe"},
+    {"decision": "rejected", "reason": "artifact", "report_text": "Findings: ..."},  # nothing to report
 ], ids=["no-reason", "other-no-note", "bad-reason", "reason-on-approve", "type-on-approve", "empty-edit",
-        "unknown-type", "bad-decision"])
+        "unknown-type", "bad-decision", "report-on-reject"])
 def test_invalid_reviews_are_refused(client, ready, body):
     case, result = ready
     assert review(client, case, result_id=result["id"], **body).status_code == 422
@@ -86,3 +87,11 @@ def test_every_decision_is_audited(client, ready):
     assert [e["action"] for e in log] == ["review.reject", "review.edit", "review.approve"]
     assert log[0]["detail"]["reason"] == "wrong_type" and log[0]["detail"]["result_id"] == result["id"]
     assert all(e["user_id"] == "doctor-a" and e["case_id"] == case["id"] for e in log)
+
+
+def test_the_approved_report_text_is_the_final_one(client, ready):
+    case, result = ready
+    r = review(client, case, result_id=result["id"], decision="approved", report_text="Findings:\n- edited by the doctor")
+    assert r.status_code == 201 and r.json()["report_text"] == "Findings:\n- edited by the doctor"
+    [latest] = client.get(f"/cases/{case['id']}/reviews", headers=DOCTOR_A).json()
+    assert latest["report_text"].endswith("edited by the doctor")
