@@ -152,6 +152,7 @@ export default function CasePage() {
           <ReviewPanel
             key={`${kase.status}-${review?.id}`}  // a fresh form after each decision or reopen
             caseId={kase.id}
+            caseCode={kase.code}
             result={result}
             review={review}
             reviewed={kase.status === "reviewed"}

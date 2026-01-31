@@ -129,3 +129,13 @@ export type AuditEntry = {
   case_code: string | null;
   detail: Record<string, unknown> | null;
 };
+
+/** Download a protected file (the token can't ride on a plain link), then let the browser save it. */
+export async function downloadFile(path: string, token: string, filename: string): Promise<void> {
+  const url = await apiFileUrl(path, token);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

@@ -6,7 +6,7 @@ import { ReportEditor } from "@/components/report-editor";
 import { ErrorNote } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { api, TUMOR_LABELS, type ResultOut, type ReviewOut } from "@/lib/api";
+import { api, downloadFile, TUMOR_LABELS, type ResultOut, type ReviewOut } from "@/lib/api";
 import { whenOf } from "@/lib/cases";
 
 const REASONS = [
@@ -20,8 +20,9 @@ type Reason = (typeof REASONS)[number][0];
 const DONE_TEXT = { approved: "Approved", edited: "Approved with your edits", rejected: "Rejected" };
 
 /** The doctor's decision on the AI result: approve, edit (type and / or mask) or reject with a reason. */
-export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token, onChanged }: {
+export function ReviewPanel({ caseId, caseCode, result, review, reviewed, canDecide, token, onChanged }: {
   caseId: string;
+  caseCode: string;
   result: ResultOut;
   review: ReviewOut | null;  // the latest decision, if any
   reviewed: boolean;
@@ -53,6 +54,18 @@ export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token
     }
   }
 
+  async function downloadPdf() {
+    setBusy(true);
+    setError(null);
+    try {
+      await downloadFile(`/cases/${caseId}/report.pdf`, token, `${caseCode}_report.pdf`);
+    } catch (e) {
+      setError(e instanceof Error ? `The PDF could not be made: ${e.message}` : "The PDF could not be made.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const decide = (decision: ReviewOut["decision"], extra: object = {}) =>
     send(`/cases/${caseId}/reviews`, { result_id: result.id, decision, note: note.trim() || null, ...extra });
 
@@ -75,11 +88,16 @@ export function ReviewPanel({ caseId, result, review, reviewed, canDecide, token
           </div>
         )}
         {error && <ErrorNote message={error} />}
-        {canDecide && (
-          <Button variant="outline" className="h-10 w-fit" disabled={busy} onClick={() => send(`/cases/${caseId}/reopen`)}>
-            Change decision
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {review.decision !== "rejected" && (
+            <Button className="h-10" disabled={busy} onClick={downloadPdf}>Download PDF</Button>
+          )}
+          {canDecide && (
+            <Button variant="outline" className="h-10" disabled={busy} onClick={() => send(`/cases/${caseId}/reopen`)}>
+              Change decision
+            </Button>
+          )}
+        </div>
       </section>
     );
   }
