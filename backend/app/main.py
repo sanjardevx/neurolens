@@ -15,7 +15,7 @@ from typing import Any, Literal
 import numpy as np
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from neurolens_ml.infer_cls import CLASSES
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
@@ -27,7 +27,8 @@ from .config import get_settings
 from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Review, Scan, init_db
 from .llm import LLM, LLMError
 from .masks import CORRECTED, MaskError, changed_voxels, read_corrected, save_corrected
-from .report import as_text, features, template_report
+from .pdf import Signed, build_pdf, key_slices_3d
+from .report import TYPES, as_text, features, template_report, where
 from .scans import MODALITIES, ScanError, check_image, check_volumes, read_image, read_volume, save_image, save_volume
 
 VIEW_LOG_GAP = timedelta(minutes=1)  # one "opened the case" entry per person and case per minute
@@ -242,6 +243,20 @@ def medical_file(path: Path, media: str, filename: str) -> FileResponse:
     """Scan and result files are never cached by the browser: no copies left on a shared clinic computer,
     and a corrected mask is never hidden behind an old cached one."""
     return FileResponse(path, media_type=media, filename=filename, headers={"Cache-Control": "no-store"})
+
+
+def utc(t: datetime) -> str:
+    # SQLite hands back naive datetimes; they are stored in UTC
+    return (t if t.tzinfo else t.replace(tzinfo=UTC)).astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def reviewer_of(db: Session, case: Case, review: Review, user: User) -> str:
+    """The reviewing doctor's login, from the audit entry of that decision (reviews store only the user id)."""
+    entries = db.scalars(select(AuditLog).where(AuditLog.case_id == case.id, AuditLog.action.startswith("review.")))
+    email = next((e.user_email for e in entries if (e.detail or {}).get("review_id") == review.id and e.user_email), None)
+    if email:
+        return email
+    return user.email if user.id == review.doctor_id and user.email else f"doctor {review.doctor_id[:8]}"
 
 
 def register_routes(app: FastAPI) -> None:
@@ -468,6 +483,51 @@ def register_routes(app: FastAPI) -> None:
         audit(db, user, "review.reopen", case.id)
         db.commit()
         return case
+
+    @app.get("/cases/{case_id}/report.pdf")
+    def report_pdf(case_id: str, request: Request, user: User = Depends(current_user),
+                   db: Session = Depends(get_db)) -> Response:
+        """The signed PDF of an approved case: key slices with the (corrected) mask, volumes, the final report text,
+        the reviewer and the approval time. A rejected or open case has no PDF."""
+        case = get_case_for(db, user, case_id)
+        review = max(case.reviews, key=lambda r: r.created_at, default=None)
+        if case.status != "reviewed" or review is None or review.decision == "rejected":
+            raise HTTPException(status.HTTP_409_CONFLICT, "Only an approved case has a report PDF")
+        result, storage = db.get(Result, review.result_id), request.app.state.storage
+        scan, out_dir = db.get(Scan, result.scan_id), storage / "results" / result.id
+        f = features(result, review)
+        images: list[tuple[str, bytes]] = []
+        if result.mask_path:
+            images, _ = key_slices_3d(storage / scan.storage_path, out_dir / (CORRECTED if f.mask_corrected else result.mask_path))
+        elif (storage / scan.storage_path / "image.png").is_file():
+            images.append(("Uploaded 2D slice", (storage / scan.storage_path / "image.png").read_bytes()))
+        if result.gradcam_path:
+            images.append(("Grad-CAM: where the 2D model looked (a heatmap, not the outline)",
+                           (out_dir / result.gradcam_path).read_bytes()))
+        final_type = f.doctor_type or f.ai_type
+        ai = TYPES.get(f.ai_type or "", "unknown")
+        type_note = (f"set by the doctor; the AI suggested {ai}" if f.doctor_type and f.doctor_type != f.ai_type
+                     else f"AI suggestion, {round((f.confidence or 0) * 100)}% from the 2D model, not calibrated")
+        place = where(f)
+        signed = Signed(
+            case_code=case.code,
+            scan="3D MRI (FLAIR, T1, T1ce, T2)" if f.scan == "3d" else "2D slice",
+            uploaded_at=utc(scan.created_at),
+            decision="Approved with edits" if review.decision == "edited" else "Approved",
+            reviewer=reviewer_of(db, case, review, user),
+            approved_at=utc(review.created_at),
+            tumor_type=TYPES.get(final_type or "", "unknown").capitalize(),
+            type_note=type_note,
+            volumes_cm3=f.volumes_cm3 if f.scan == "3d" else None,
+            location=place[0].upper() + place[1:] if place else None,
+            report_text=review.report_text or as_text(template_report(f)),
+            models=result.model_version,
+        )
+        data = build_pdf(signed, images[:3])
+        audit(db, user, "report.pdf", case.id, review_id=review.id)
+        db.commit()
+        return Response(data, media_type="application/pdf", headers={
+            "Content-Disposition": f'attachment; filename="{case.code}_report.pdf"', "Cache-Control": "no-store"})
 
     @app.get("/cases/{case_id}/reviews", response_model=list[ReviewOut])
     def list_reviews(case_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list:

@@ -31,6 +31,7 @@ ENDPOINTS = [
     ("POST", "/cases/{case}/reviews", (201, 404, 403, 401, 403)),
     ("GET", "/cases/{case}/reviews", (200, 404, 200, 401, 403)),
     ("POST", "/cases/{case}/reopen", (409, 404, 403, 401, 403)),  # 409: not reviewed yet
+    ("GET", "/cases/{case}/report.pdf", (409, 404, 409, 401, 403)),  # 409: not approved yet
     ("GET", "/audit", (403, 403, 200, 401, 403)),
 ]
 
