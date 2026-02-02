@@ -92,3 +92,11 @@ Ollama). The LLM never sees the image. Its answer is refused, and the template r
 adds a number, names a tumor type the draft didn't, drops a sentence or isn't valid JSON. A saved LLM draft is
 only reused while the numbers it was written from stay the same.
 
+## Feedback export
+
+`python backend/scripts/export_feedback.py --out feedback [--tag fb-v1] [--zip]` turns reviewed 3D cases into a
+versioned training set: **train** (the doctor fixed the mask; the corrected mask is the label), **relabel** (rejected
+for a bad mask but not fixed), **excluded** (artifact or type-only rejection) and **approved** (counted, not exported).
+Files use the BraTS layout on one RAS grid, so `neurolens_ml` reads them directly. `manifest.csv` lists every case with
+the AI vs doctor whole-tumor Dice; `summary.json` has the counts and model versions. No names, emails or user ids.
+
