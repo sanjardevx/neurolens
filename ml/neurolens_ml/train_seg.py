@@ -89,28 +89,27 @@ def save_curves(hist: pd.DataFrame, tag: str, path: Path) -> None:
     plt.close(fig)
 
 
-def train(cfg: dict, root: Path, splits_csv: Path, out: Path, cache_dir: Path | None = None) -> dict:
-    seed_everything(cfg["seed"])
-    device = get_device()
-    torch.backends.cudnn.benchmark = True  # fixed 128³ inputs: let cuDNN pick the fastest 3D conv once
+def fit(model: torch.nn.Module, train_cases: list[dict], val_cases: list[dict], cfg: dict, device: torch.device,
+        out: Path, cache_dir: Path | None = None, start_best: float | None = None) -> tuple[pd.DataFrame, int, Path]:
+    """Train with early stopping on mean val Dice; the best weights go to segmenter_<name>.pt.
+    start_best (fine-tuning): the starting model's val Dice; its weights are saved first, so the result is
+    never worse on val than where it started."""
     name, patch = cfg["name"], (cfg["patch"],) * 3
-    cases = split_cases(root, splits_csv)
     train_tf = train_transforms(patch)
     train_tf.set_random_state(seed=cfg["seed"])
-    train_loader = DataLoader(make_dataset(cases["train"], train_tf, cache_dir), batch_size=cfg["batch_size"], shuffle=True,
+    train_loader = DataLoader(make_dataset(train_cases, train_tf, cache_dir), batch_size=cfg["batch_size"], shuffle=True,
                               num_workers=cfg["num_workers"], pin_memory=device.type == "cuda")
-
-    model = create_segmenter(cfg).to(device)
     criterion = DiceBCELoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg["epochs"])
     use_amp = cfg["amp"] and device.type == "cuda"
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     ckpt = out / f"segmenter_{name}.pt"
-    print(f"--- {name}: SegResNet {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M params, patch {patch}, "
-          f"device {device}, train {len(cases['train'])} / val {len(cases['val'])} cases", flush=True)
+    best = -1.0 if start_best is None else start_best
+    if start_best is not None:
+        torch.save(model.state_dict(), ckpt)
 
-    start, best, best_epoch, bad_checks, history = time.time(), -1.0, 0, 0, []
+    start, best_epoch, bad_checks, history = time.time(), 0, 0, []
     for epoch in range(1, cfg["epochs"] + 1):
         t0 = time.time()
         model.train()
@@ -130,7 +129,7 @@ def train(cfg: dict, root: Path, splits_csv: Path, out: Path, cache_dir: Path | 
         row = {"epoch": epoch, "train_loss": float(np.mean(losses))}
         msg = f"epoch {epoch:3d} | loss {row['train_loss']:.4f}"
         if epoch % cfg["val_every"] == 0 or epoch == cfg["epochs"]:
-            dice = evaluate(model, cases["val"], cfg, device, cache_dir)[REGION_NAMES].mean()
+            dice = evaluate(model, val_cases, cfg, device, cache_dir)[REGION_NAMES].mean()
             row |= {f"val_{r}": float(dice[r]) for r in REGION_NAMES} | {"val_mean": float(dice.mean())}
             msg += " | val Dice " + " ".join(f"{r.upper()} {dice[r]:.3f}" for r in REGION_NAMES) + f" mean {row['val_mean']:.3f}"
             if row["val_mean"] > best:
@@ -152,6 +151,20 @@ def train(cfg: dict, root: Path, splits_csv: Path, out: Path, cache_dir: Path | 
     hist = pd.DataFrame(history)
     hist.to_csv(out / f"history_seg_{name}.csv", index=False)
     save_curves(hist, name, out / f"curves_seg_{name}.png")
+    return hist, best_epoch, ckpt
+
+
+def train(cfg: dict, root: Path, splits_csv: Path, out: Path, cache_dir: Path | None = None) -> dict:
+    seed_everything(cfg["seed"])
+    device = get_device()
+    torch.backends.cudnn.benchmark = True  # fixed 128³ inputs: let cuDNN pick the fastest 3D conv once
+    name, patch = cfg["name"], (cfg["patch"],) * 3
+    cases = split_cases(root, splits_csv)
+    model = create_segmenter(cfg).to(device)
+    print(f"--- {name}: SegResNet {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M params, patch {patch}, "
+          f"device {device}, train {len(cases['train'])} / val {len(cases['val'])} cases", flush=True)
+    start = time.time()
+    hist, best_epoch, ckpt = fit(model, cases["train"], cases["val"], cfg, device, out, cache_dir)
 
     # Val report of the best checkpoint, per case, to find where the model fails
     model.load_state_dict(torch.load(ckpt, map_location=device))

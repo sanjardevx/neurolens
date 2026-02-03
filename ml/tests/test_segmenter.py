@@ -120,3 +120,43 @@ def test_evaluate_seg_val_then_test(brats_root, tmp_path):
     assert test["n_test"] == 1 and test["min_et_voxels"] == val["min_et_voxels"]
     per_case = pd.read_csv(tmp_path / "out" / "eval_seg_test_tiny.csv")
     assert per_case.true_wt_voxels.tolist() == [1536]  # true volume counted on the cropped brain
+
+
+def test_select_feedback_takes_the_worst_val_cases():
+    from neurolens_ml.finetune_seg import select_feedback
+
+    val = pd.DataFrame({"id": ["a", "b", "c", "d"], "tc": [0.9, 0.1, 0.5, 0.95],
+                        "wt": [0.9, 0.2, 0.6, 0.95], "et": [0.9, 0.0, 0.4, 0.95]})
+    sel = select_feedback(val, k=2).set_index("id")
+    assert sel.role.to_dict() == {"a": "val_rest", "b": "feedback", "c": "feedback", "d": "val_rest"}
+    assert sel.loc["b", "v1_mean"] == pytest.approx(0.1)
+
+
+def test_finetune_smoke_run_with_simulated_and_real_feedback(brats_root, tmp_path):
+    from .helpers import write_case
+
+    from neurolens_ml import finetune_seg
+    from neurolens_ml.models.segmenter import create_segmenter
+
+    for i in ("00004", "00005"):
+        write_case(brats_root, f"BraTS2021_{i}")
+    splits, selection, ckpt = tmp_path / "splits.csv", tmp_path / "selection.csv", tmp_path / "segmenter_segresnet.pt"
+    pd.DataFrame({"id": ["BraTS2021_00000", "BraTS2021_00002", "BraTS2021_00004", "BraTS2021_00005"],
+                  "split": ["train", "val", "val", "test"]}).to_csv(splits, index=False)
+    pd.DataFrame({"id": ["BraTS2021_00002", "BraTS2021_00004"], "role": ["feedback", "val_rest"]}).to_csv(selection, index=False)
+    config = finetune_seg.DATA.parent / "configs" / "seg_finetune.yaml"
+    cfg = finetune_seg.load_config(config) | train_seg.SMOKE_OVERRIDES
+    torch.save(create_segmenter(cfg).state_dict(), ckpt)  # stands in for v1
+    real = tmp_path / "export" / "train"
+    write_case(real, "NL-AB12CD")  # a doctor-corrected case in the API's export layout
+    out = tmp_path / "out"
+    m = finetune_seg.main(["--config", str(config), "--data", str(brats_root), "--splits", str(splits),
+                           "--selection", str(selection), "--checkpoint", str(ckpt), "--feedback-dir", str(real),
+                           "--out", str(out), "--smoke", "--cache-dir", str(tmp_path / "cache")])
+    assert m["test"] is None and m["feedback"] | {"source": ""} == {"simulated": 1, "real": 1, "repeat": 5, "source": ""}
+    assert m["v1"]["val_rest"]["n"] == 1 and m["v2"]["feedback"]["n"] == 1
+    # The starting model is saved first, so v2 is never worse than v1 on the selection cases
+    assert m["v2"]["val_rest"]["mean"] >= m["v1"]["val_rest"]["mean"]
+    for f in ["segmenter_segresnet_fb1.pt", "history_seg_segresnet_fb1.csv", "compare_val_rest_segresnet_fb1.csv",
+              "compare_feedback_segresnet_fb1.csv", "metrics_seg_segresnet_fb1.json"]:
+        assert (out / f).exists()
