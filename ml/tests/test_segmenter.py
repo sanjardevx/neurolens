@@ -79,6 +79,19 @@ def test_cache_gives_the_same_data(brats_root, tmp_path):
         assert torch.equal(train_seg.plain(fresh[key]), second[key]) and torch.equal(first[key], second[key])
 
 
+def test_batch_can_mix_cached_and_fresh_items(brats_root, tmp_path):
+    """Fine-tuning repeats the corrected cases, so one batch holds a scan read from the cache next to a new one."""
+    from monai.data import DataLoader
+
+    from neurolens_ml.data.brats import find_cases, train_transforms
+
+    a, b = find_cases(brats_root)[:2]
+    tf = train_transforms((32, 32, 32))
+    train_seg.make_dataset([a], tf, tmp_path / "cache")[0]  # a is cached, b is not
+    batch = next(iter(DataLoader(train_seg.make_dataset([a, b], tf, tmp_path / "cache"), batch_size=2)))
+    assert batch["image"].shape[0] == 2
+
+
 def test_drop_small_et_clears_only_small_et():
     pred = torch.zeros(2, 3, 4, 4, 4, dtype=torch.bool)
     pred[:, :2, :2] = True  # TC and WT in both cases

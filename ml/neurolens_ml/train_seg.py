@@ -28,8 +28,8 @@ from .prep_brats import EXTRACT_TO, find_root  # noqa: E402
 DATA = Path(__file__).resolve().parents[1] / "data"
 CACHE_DIR = Path("/tmp/brats_cache")  # ~40 GB of prepared scans on Kaggle's local disk, not in the outputs
 REGION_NAMES = list(REGIONS)  # tc, wt, et: the model's output channel order
-# Tiny run on fake volumes: checks the code path, not the model
-SMOKE_OVERRIDES = dict(patch=32, batch_size=1, epochs=2, val_every=1, init_filters=8, num_workers=0, sw_batch_size=1)
+# Tiny run on fake volumes: checks the code path, not the model (batch 2 like the real runs, so collation is tested)
+SMOKE_OVERRIDES = dict(patch=32, batch_size=2, epochs=2, val_every=1, init_filters=8, num_workers=0, sw_batch_size=1)
 
 
 def split_cases(root: Path, splits_csv: Path) -> dict[str, list[dict]]:

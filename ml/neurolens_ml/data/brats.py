@@ -72,7 +72,10 @@ def val_transforms() -> T.Compose:
     return T.Compose([
         *load_transforms().transforms,
         # Cut the black background around the skull-stripped brain (about half of the 240x240x155 volume)
-        T.CropForegroundd(keys=["image", "label"], source_key="image", allow_smaller=True),
+        # No crop-corner keys: they stay numpy on a fresh item but come back as tensors from the disk cache, and a
+        # batch mixing both (repeated cases in fine-tuning) can't be collated
+        T.CropForegroundd(keys=["image", "label"], source_key="image", allow_smaller=True,
+                          start_coord_key=None, end_coord_key=None),
         # MRI intensities have no fixed unit, so each modality is scaled by its own brain voxels (background stays 0)
         T.NormalizeIntensityd(keys="image", nonzero=True, channel_wise=True),
         # Half the size in the disk cache; the training loop casts back to float32
