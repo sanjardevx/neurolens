@@ -8,6 +8,7 @@ The test split is never touched here.
 import argparse
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib
@@ -80,8 +81,9 @@ def save_curves(hist: pd.DataFrame, tag: str, path: Path) -> None:
     ax1.plot(hist.epoch, hist.train_loss)
     ax1.set_title(f"train loss (Dice + BCE) · {tag}")
     val = hist.dropna(subset=["val_mean"])
-    for col in [*(f"val_{r}" for r in REGION_NAMES), "val_mean"]:
-        ax2.plot(val.epoch, val[col], marker=".", label=col.removeprefix("val_").upper())
+    for col in [*(f"val_{r}" for r in REGION_NAMES), "val_mean", "fb_mean"]:
+        if col in val:  # fb_mean: the corrected cases, only in fine-tuning
+            ax2.plot(val.epoch, val[col], marker=".", label="corrected cases" if col == "fb_mean" else col.removeprefix("val_").upper())
     ax2.set_title(f"val Dice · {tag}")
     ax2.legend()
     plt.tight_layout()
@@ -90,10 +92,12 @@ def save_curves(hist: pd.DataFrame, tag: str, path: Path) -> None:
 
 
 def fit(model: torch.nn.Module, train_cases: list[dict], val_cases: list[dict], cfg: dict, device: torch.device,
-        out: Path, cache_dir: Path | None = None, start_best: float | None = None) -> tuple[pd.DataFrame, int, Path]:
-    """Train with early stopping on mean val Dice; the best weights go to segmenter_<name>.pt.
-    start_best (fine-tuning): the starting model's val Dice; its weights are saved first, so the result is
-    never worse on val than where it started."""
+        out: Path, cache_dir: Path | None = None, start_best: float | None = None,
+        score: Callable[[torch.nn.Module], tuple[float | None, dict]] | None = None) -> tuple[pd.DataFrame, int, Path]:
+    """Train with early stopping; the best weights go to segmenter_<name>.pt.
+    score(model) -> (value to maximize, or None if this epoch may not be picked; numbers for the history).
+    Default: mean val Dice. start_best (fine-tuning): the starting model's score; its weights are saved first,
+    so a later epoch is kept only if it beats where training started."""
     name, patch = cfg["name"], (cfg["patch"],) * 3
     train_tf = train_transforms(patch)
     train_tf.set_random_state(seed=cfg["seed"])
@@ -108,6 +112,11 @@ def fit(model: torch.nn.Module, train_cases: list[dict], val_cases: list[dict], 
     best = -1.0 if start_best is None else start_best
     if start_best is not None:
         torch.save(model.state_dict(), ckpt)
+
+    def val_score(m: torch.nn.Module) -> tuple[float, dict]:
+        dice = evaluate(m, val_cases, cfg, device, cache_dir)[REGION_NAMES].mean()
+        numbers = {f"val_{r}": float(dice[r]) for r in REGION_NAMES} | {"val_mean": float(dice.mean())}
+        return numbers["val_mean"], numbers
 
     start, best_epoch, bad_checks, history = time.time(), 0, 0, []
     for epoch in range(1, cfg["epochs"] + 1):
@@ -129,11 +138,11 @@ def fit(model: torch.nn.Module, train_cases: list[dict], val_cases: list[dict], 
         row = {"epoch": epoch, "train_loss": float(np.mean(losses))}
         msg = f"epoch {epoch:3d} | loss {row['train_loss']:.4f}"
         if epoch % cfg["val_every"] == 0 or epoch == cfg["epochs"]:
-            dice = evaluate(model, val_cases, cfg, device, cache_dir)[REGION_NAMES].mean()
-            row |= {f"val_{r}": float(dice[r]) for r in REGION_NAMES} | {"val_mean": float(dice.mean())}
-            msg += " | val Dice " + " ".join(f"{r.upper()} {dice[r]:.3f}" for r in REGION_NAMES) + f" mean {row['val_mean']:.3f}"
-            if row["val_mean"] > best:
-                best, best_epoch, bad_checks = row["val_mean"], epoch, 0
+            value, numbers = (score or val_score)(model)
+            row |= numbers
+            msg += " | " + " ".join(f"{k} {v:.3f}" for k, v in numbers.items())
+            if value is not None and value > best:
+                best, best_epoch, bad_checks = value, epoch, 0
                 torch.save(model.state_dict(), ckpt)
                 msg += " *"
             else:

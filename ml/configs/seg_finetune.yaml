@@ -1,16 +1,18 @@
 # Week 9 feedback loop: fine-tune v1 (seg_segresnet.yaml) on BraTS train + corrected cases
-name: segresnet_fb1          # output files: segmenter_segresnet_fb1.pt, metrics_seg_segresnet_fb1.json, ...
+name: segresnet_fb2          # output files: segmenter_segresnet_fb2.pt, metrics_seg_segresnet_fb2.json, ...
+                             # (fb1: lr 2e-5, x5, must beat v1 on val_rest -> v1 kept; see ml/results/10_feedback_v1kept)
 base_name: segresnet         # the v1 checkpoint to start from: segmenter_segresnet.pt
 init_filters: 16             # must match v1
 dropout: 0.2
 patch: 128
 batch_size: 2
-lr: 2.0e-5                   # 5x below v1: adjust the trained model, don't relearn it
+lr: 5.0e-5                   # 2x below v1: adjust the trained model, don't relearn it
 weight_decay: 1.0e-5
 epochs: 16
 val_every: 2
 patience: 4
-feedback_repeat: 5           # each corrected case appears 5 times per epoch
+feedback_repeat: 10          # each corrected case appears 10 times per epoch (~1/3 of an epoch)
+margin: 0.005                # allowed drop in mean Dice on the other val cases; fixed before the run
 sw_batch_size: 4
 sw_overlap: 0.5
 amp: true

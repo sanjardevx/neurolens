@@ -166,10 +166,13 @@ def test_finetune_smoke_run_with_simulated_and_real_feedback(brats_root, tmp_pat
     m = finetune_seg.main(["--config", str(config), "--data", str(brats_root), "--splits", str(splits),
                            "--selection", str(selection), "--checkpoint", str(ckpt), "--feedback-dir", str(real),
                            "--out", str(out), "--smoke", "--cache-dir", str(tmp_path / "cache")])
-    assert m["test"] is None and m["feedback"] | {"source": ""} == {"simulated": 1, "real": 1, "repeat": 5, "source": ""}
+    assert m["test"] is None and m["feedback"] | {"source": ""} == {"simulated": 1, "real": 1, "repeat": cfg["feedback_repeat"], "source": ""}
     assert m["v1"]["val_rest"]["n"] == 1 and m["v2"]["feedback"]["n"] == 1
-    # The starting model is saved first, so v2 is never worse than v1 on the selection cases
-    assert m["v2"]["val_rest"]["mean"] >= m["v1"]["val_rest"]["mean"]
-    for f in ["segmenter_segresnet_fb1.pt", "history_seg_segresnet_fb1.csv", "compare_val_rest_segresnet_fb1.csv",
-              "compare_feedback_segresnet_fb1.csv", "metrics_seg_segresnet_fb1.json"]:
+    # v1 is saved first: a kept epoch learned the corrections better and stayed within the margin elsewhere
+    assert m["v2"]["val_rest"]["mean"] >= m["v1"]["val_rest"]["mean"] - cfg["margin"]
+    assert m["kept_v1"] or m["v2"]["feedback"]["mean"] > m["v1"]["feedback"]["mean"]
+    hist = pd.read_csv(out / "history_seg_segresnet_fb2.csv")
+    assert {"val_mean", "fb_mean"} <= set(hist.columns)  # both groups measured at every check
+    for f in ["segmenter_segresnet_fb2.pt", "curves_seg_segresnet_fb2.png", "compare_val_rest_segresnet_fb2.csv",
+              "compare_feedback_segresnet_fb2.csv", "metrics_seg_segresnet_fb2.json"]:
         assert (out / f).exists()

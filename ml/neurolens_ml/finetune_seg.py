@@ -5,8 +5,9 @@
 
 Corrections come from ml/data/feedback_sim.csv: the k val cases where v1 was worst, with their expert BraTS masks
 standing in for a doctor's fix (simulated feedback). Real corrections exported by the API
-(backend/scripts/export_feedback.py) can be added with --feedback-dir. The other val cases pick the best epoch and
-the starting model is saved first, so the result is never worse on them. The test split is not touched here (Day 3).
+(backend/scripts/export_feedback.py) can be added with --feedback-dir. The kept epoch is the one that learned the
+corrections best while staying within `margin` of v1 on the other val cases; if none beats v1, v1 is kept.
+The test split is not touched here (Day 3).
 """
 import argparse
 import json
@@ -64,8 +65,19 @@ def finetune(cfg: dict, root: Path, splits_csv: Path, selection_csv: Path, check
     v1 = {k: summarize(v) for k, v in before.items()}
     print(f"v1 before fine-tuning: {v1}", flush=True)
 
+    floor = v1["val_rest"]["mean"] - cfg["margin"]
+
+    def score(m: torch.nn.Module) -> tuple[float | None, dict]:
+        """Pick the epoch that learned the corrections best, among those not worse than v1 on the other val cases
+        (by more than the margin: a 0.001 move there is noise)."""
+        now = {k: summarize(evaluate(m, cases, cfg, device, cache_dir)) for k, cases in
+               (("val", val_rest), ("fb", feedback))}
+        numbers = {f"{k}_{r}": now[k][r] for k in now for r in [*REGION_NAMES, "mean"]}
+        return (now["fb"]["mean"] if now["val"]["mean"] >= floor else None), numbers
+
+    # v1 is the start: a fine-tuned epoch must learn the corrections better than v1 did to replace it
     hist, best_epoch, ckpt = fit(model, train_cases, val_rest, cfg, device, out, cache_dir,
-                                 start_best=v1["val_rest"]["mean"])
+                                 start_best=v1["feedback"]["mean"], score=score)
     model.load_state_dict(torch.load(ckpt, map_location=device))
     after = {"val_rest": evaluate(model, val_rest, cfg, device, cache_dir),
              "feedback": evaluate(model, feedback, cfg, device, cache_dir)}
@@ -75,7 +87,8 @@ def finetune(cfg: dict, root: Path, splits_csv: Path, selection_csv: Path, check
         both.to_csv(out / f"compare_{part}_{cfg['name']}.csv", index=False)
 
     metrics = dict(config=cfg, checkpoint_from=checkpoint.name, best_epoch=best_epoch, epochs_run=len(hist),
-                   kept_v1=best_epoch == 0, hours=round((time.time() - start) / 3600, 2), v1=v1, v2=v2, test=None,
+                   kept_v1=best_epoch == 0, rule=f"best corrected-case Dice with val_rest >= v1 - {cfg['margin']}",
+                   hours=round((time.time() - start) / 3600, 2), v1=v1, v2=v2, test=None,
                    feedback={"simulated": len(feedback), "real": len(real), "repeat": cfg["feedback_repeat"],
                              "source": "expert BraTS masks of the k worst v1 val cases, standing in for doctors' fixes"})
     (out / f"metrics_seg_{cfg['name']}.json").write_text(json.dumps(metrics, indent=2))
