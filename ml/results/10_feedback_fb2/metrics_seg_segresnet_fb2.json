@@ -1,0 +1,70 @@
+{
+  "config": {
+    "name": "segresnet_fb2",
+    "base_name": "segresnet",
+    "init_filters": 16,
+    "dropout": 0.2,
+    "patch": 128,
+    "batch_size": 2,
+    "lr": 5e-05,
+    "weight_decay": 1e-05,
+    "epochs": 16,
+    "val_every": 2,
+    "patience": 4,
+    "feedback_repeat": 10,
+    "margin": 0.005,
+    "sw_batch_size": 4,
+    "sw_overlap": 0.5,
+    "amp": true,
+    "num_workers": 4,
+    "max_hours": 8.0,
+    "seed": 42
+  },
+  "checkpoint_from": "segmenter_segresnet.pt",
+  "best_epoch": 16,
+  "epochs_run": 16,
+  "kept_v1": false,
+  "rule": "best corrected-case Dice with val_rest >= v1 - 0.005",
+  "hours": 1.88,
+  "v1": {
+    "val_rest": {
+      "tc": 0.9577,
+      "wt": 0.9461,
+      "et": 0.9241,
+      "mean": 0.9426,
+      "n": 148
+    },
+    "feedback": {
+      "tc": 0.7653,
+      "wt": 0.8525,
+      "et": 0.6177,
+      "mean": 0.7452,
+      "n": 40
+    }
+  },
+  "v2": {
+    "val_rest": {
+      "tc": 0.9581,
+      "wt": 0.9454,
+      "et": 0.9247,
+      "mean": 0.9427,
+      "n": 148
+    },
+    "feedback": {
+      "tc": 0.8882,
+      "wt": 0.904,
+      "et": 0.7312,
+      "mean": 0.8411,
+      "n": 40
+    }
+  },
+  "test": null,
+  "feedback": {
+    "simulated": 40,
+    "real": 0,
+    "repeat": 10,
+    "source": "expert BraTS masks of the k worst v1 val cases, standing in for doctors' fixes"
+  },
+  "repo_commit": "ca5a499",
+  "gpu": "Tesla T4"
+}
