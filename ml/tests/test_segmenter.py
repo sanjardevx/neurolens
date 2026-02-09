@@ -1,5 +1,6 @@
 import json
 
+import numpy as np
 import pandas as pd
 import pytest
 import torch
@@ -176,3 +177,38 @@ def test_finetune_smoke_run_with_simulated_and_real_feedback(brats_root, tmp_pat
     for f in ["segmenter_segresnet_fb2.pt", "curves_seg_segresnet_fb2.png", "compare_val_rest_segresnet_fb2.csv",
               "compare_feedback_segresnet_fb2.csv", "metrics_seg_segresnet_fb2.json"]:
         assert (out / f).exists()
+
+
+def test_paired_difference_counts_and_interval():
+    from neurolens_ml.compare_seg import paired
+
+    p = paired(np.array([0.05, 0.0, -0.02, 0.005]), seed=0)
+    assert (p["better"], p["same"], p["worse"], p["n"]) == (1, 2, 1, 4)
+    assert p["ci95"][0] <= p["mean_diff"] <= p["ci95"][1]
+
+
+def test_compare_smoke_run_old_vs_new_on_test(brats_root, tmp_path):
+    from .helpers import write_case
+
+    from neurolens_ml import compare_seg
+    from neurolens_ml.models.segmenter import create_segmenter
+
+    for i in ("00004", "00005"):
+        write_case(brats_root, f"BraTS2021_{i}")
+    splits, selection = tmp_path / "splits.csv", tmp_path / "selection.csv"
+    pd.DataFrame({"id": ["BraTS2021_00000", "BraTS2021_00002", "BraTS2021_00004", "BraTS2021_00005"],
+                  "split": ["train", "val", "val", "test"]}).to_csv(splits, index=False)
+    pd.DataFrame({"id": ["BraTS2021_00002", "BraTS2021_00004"], "role": ["feedback", "val_rest"]}).to_csv(selection, index=False)
+    configs = compare_seg.DATA.parent / "configs"
+    tiny = {"init_filters": 8, "dropout": 0.0}
+    for name in ("old", "new"):
+        torch.manual_seed(len(name))
+        torch.save(create_segmenter(tiny).state_dict(), tmp_path / f"{name}.pt")
+    out = tmp_path / "out"
+    m = compare_seg.main(["--old-config", str(configs / "seg_segresnet.yaml"), "--new-config", str(configs / "seg_finetune.yaml"),
+                          "--old-checkpoint", str(tmp_path / "old.pt"), "--new-checkpoint", str(tmp_path / "new.pt"),
+                          "--data", str(brats_root), "--splits", str(splits), "--selection", str(selection),
+                          "--out", str(out), "--cache-dir", str(tmp_path / "cache"), "--smoke"])
+    assert m["paired_all"]["n"] == 1 and m["keep"] in ("old", "new")
+    assert m["keep"] == ("new" if m["new"]["test"]["mean"] >= m["old"]["test"]["mean"] - compare_seg.MARGIN else "old")
+    assert (out / "compare_test_seg.csv").exists() and (out / "metrics_seg_compare.json").exists()
