@@ -1,0 +1,63 @@
+{
+  "old": {
+    "checkpoint": "segmenter_segresnet.pt",
+    "min_et_voxels": 0,
+    "test": {
+      "tc": 0.9082,
+      "wt": 0.9286,
+      "et": 0.8554,
+      "mean": 0.8974
+    }
+  },
+  "new": {
+    "checkpoint": "segmenter_segresnet_fb2.pt",
+    "min_et_voxels": 0,
+    "test": {
+      "tc": 0.9143,
+      "wt": 0.9283,
+      "et": 0.8717,
+      "mean": 0.9048
+    }
+  },
+  "paired_all": {
+    "mean_diff": 0.0074,
+    "ci95": [
+      0.0024,
+      0.0138
+    ],
+    "better": 18,
+    "same": 158,
+    "worse": 12,
+    "n": 188
+  },
+  "small_et": {
+    "old": {
+      "tc": 0.7452,
+      "wt": 0.8855,
+      "et": 0.6701,
+      "mean": 0.7669
+    },
+    "new": {
+      "tc": 0.7637,
+      "wt": 0.8851,
+      "et": 0.728,
+      "mean": 0.7923
+    },
+    "paired": {
+      "mean_diff": 0.0253,
+      "ci95": [
+        0.0009,
+        0.0559
+      ],
+      "better": 8,
+      "same": 22,
+      "worse": 7,
+      "n": 37
+    },
+    "rule": "true ET < 5 cm3"
+  },
+  "rule": "keep new if test mean >= old - 0.005",
+  "keep": "new",
+  "repo_commit": "008a57e",
+  "gpu": "Tesla T4"
+}
