@@ -1,6 +1,7 @@
 """Export the 3D segmenter to ONNX, check it against PyTorch, time it on CPU, check measurements on real cases.
 
-    python -m neurolens_ml.export_seg --config ml/configs/seg_segresnet.yaml [--cases 6 --data <BraTS folder>]
+    python -m neurolens_ml.export_seg --config ml/configs/seg_segresnet.yaml --version seg-segresnet-v1 --min-et 50 \
+        [--about "..."] [--cases 6 --data <BraTS folder>]
 
 Writes segmenter3d.onnx, onnx_seg_report.json and, with --cases, onnx_seg_cases.csv + onnx_seg_cases.png.
 """
@@ -24,6 +25,7 @@ from .evaluate_seg import find_checkpoint  # noqa: E402
 from .export import OPSET  # noqa: E402
 from .infer_seg import PATCH, load_ras, onnx_runner, segment  # noqa: E402
 from .measure import measure  # noqa: E402
+from .onnx_meta import stamp  # noqa: E402
 from .models.segmenter import create_segmenter, region_dice  # noqa: E402
 from .prep_brats import EXTRACT_TO, find_root  # noqa: E402
 from .train_seg import DATA, REGION_NAMES, split_cases  # noqa: E402
@@ -92,6 +94,9 @@ def main(argv: list[str] | None = None) -> dict:
     ap.add_argument("--extract-to", type=Path, default=EXTRACT_TO)
     ap.add_argument("--splits", type=Path, default=DATA / "brats_splits.csv")
     ap.add_argument("--out")
+    ap.add_argument("--version", required=True, help="written into the ONNX file; every result names it")
+    ap.add_argument("--min-et", type=int, required=True, help="small-ET limit of this model, tuned on val")
+    ap.add_argument("--about", default="", help="one line for the dashboard")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -100,6 +105,7 @@ def main(argv: list[str] | None = None) -> dict:
     model.load_state_dict(torch.load(find_checkpoint(args.checkpoint, cfg["name"]), map_location="cpu"))
     onnx_path = out / "segmenter3d.onnx"
     export_onnx(model, onnx_path)
+    stamp(onnx_path, version=args.version, min_et_voxels=args.min_et, about=args.about)
     run_onnx = onnx_runner(onnx_path)
 
     # 1) One window: ONNX vs PyTorch on CPU
@@ -112,7 +118,7 @@ def main(argv: list[str] | None = None) -> dict:
     # 2) CPU time for a full-size scan (240 x 240 x 155, brain about 140 x 170 x 136 → 8 windows)
     image = fake_brain()
     t = time.perf_counter()
-    segment(image, run_onnx)
+    segment(image, run_onnx, min_et=args.min_et)
     report["cpu_seconds_per_scan"] = round(time.perf_counter() - t, 1)
     print(json.dumps(report, indent=2), flush=True)
 
@@ -125,11 +131,11 @@ def main(argv: list[str] | None = None) -> dict:
             image, affine = load_ras(case["image"])
             true = true_regions(case["label"])
             t = time.perf_counter()
-            mask = segment(image, run_onnx)
+            mask = segment(image, run_onnx, min_et=args.min_et)
             seconds = time.perf_counter() - t
             m = measure(image, mask, affine)
             rows.append({"id": case["id"], "onnx_seconds": round(seconds, 1),
-                         **dict(zip([f"agree_{r}" for r in REGION_NAMES], dice(mask, segment(image, run_torch)))),
+                         **dict(zip([f"agree_{r}" for r in REGION_NAMES], dice(mask, segment(image, run_torch, min_et=args.min_et)))),
                          **dict(zip([f"onnx_dice_{r}" for r in REGION_NAMES], dice(mask, true))),
                          "side": m["side"], "lobe_estimate": m["lobe_estimate"],
                          "whole_tumor_cm3": m["volume_cm3"]["whole_tumor"],

@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from .conftest import ADMIN, DOCTOR_A, DOCTOR_B
-from .fakes import brain, dicom_zip, four, nifti_bytes, slice_png
+from .fakes import brain, dicom_zip, four, nifti_bytes, slice_png, stub_segmenter
 
 MARKER_VOXELS = 8 * 8 * 4  # the stub segmenter finds exactly the bright marker block
 
@@ -30,7 +30,8 @@ def test_3d_upload_runs_segmentation_and_measures(client, case):
     upload(client, case, four(lambda m: (f"{m}.nii.gz", nifti_bytes(brain()))))
     [r] = results(client, case)
     assert r["error"] is None and r["progress"] == 100
-    assert r["model_version"] == "seg-segresnet-v1 + cls-b3-crop-v1"
+    assert r["model_version"] == "seg-stub-v1 + cls-stub-v1"  # read from the model files that ran
+    assert r["info"]["models"]["segmenter"] == {"version": "seg-stub-v1", "about": "test stand-in"}
     assert r["volumes_cm3"] == {"whole_tumor": 0.26, "tumor_core": 0.26, "enhancing": 0.26,
                                 "necrosis_non_enhancing": 0.0, "edema": 0.0}
     assert r["side"] == "right"  # NIfTI with an identity affine: high x index is the patient's right
@@ -59,7 +60,8 @@ def test_dicom_tumor_on_the_left_is_reported_left(client, case):
 def test_2d_upload_gets_type_and_gradcam(client, case):
     upload(client, case, {"image": ("slice.png", slice_png(fmt="PNG"))})
     [r] = results(client, case)
-    assert r["model_version"] == "cls-b3-crop-v1" and r["tumor_type"] == "glioma" and r["volumes_cm3"] is None
+    assert r["model_version"] == "cls-stub-v1" and r["tumor_type"] == "glioma" and r["volumes_cm3"] is None
+    assert set(r["info"]["models"]) == {"classifier"}
     png = client.get(f"/cases/{case['id']}/results/{r['id']}/gradcam", headers=DOCTOR_A)
     assert png.headers["content-type"] == "image/png" and Image.open(io.BytesIO(png.content)).size == (384, 384)
     assert client.get(f"/cases/{case['id']}/results/{r['id']}/mask", headers=DOCTOR_A).status_code == 404
@@ -73,6 +75,30 @@ def test_missing_model_fails_the_case_cleanly(client, case):
     assert client.get(f"/cases/{case['id']}", headers=DOCTOR_A).json()["status"] == "failed"
     failed = [e for e in client.get("/audit", headers=ADMIN).json() if e["action"] == "analysis.failed"]
     assert len(failed) == 1 and "segmenter3d.onnx" in failed[0]["detail"]["error"]
+
+
+def test_new_segmenter_version_is_used_with_its_own_et_limit(client, case):
+    # Swapping the file is the whole release: the version and the small-ET limit come with it
+    stub_segmenter(client.app.state.models.dir / "segmenter3d.onnx", version="seg-stub-v2", min_et=MARKER_VOXELS + 1)
+    client.app.state.models._seg = None  # a restart loads the new file
+    upload(client, case, four(lambda m: (f"{m}.nii.gz", nifti_bytes(brain()))))
+    [r] = results(client, case)
+    assert r["model_version"] == "seg-stub-v2 + cls-stub-v1"
+    assert r["volumes_cm3"]["enhancing"] == 0.0 and r["volumes_cm3"]["whole_tumor"] == 0.26  # ET under the limit dropped
+    row = next(c for c in client.get("/cases", headers=DOCTOR_A).json() if c["id"] == case["id"])
+    assert row["model_version"] == "seg-stub-v2 + cls-stub-v1"  # the worklist shows which model made it
+
+
+def test_model_without_version_fails_the_case(client, case):
+    import onnx
+
+    path = client.app.state.models.dir / "segmenter3d.onnx"
+    model = onnx.load(str(path))
+    del model.metadata_props[:]
+    onnx.save(model, str(path))
+    upload(client, case, four(lambda m: (f"{m}.nii.gz", nifti_bytes(brain()))))
+    [r] = results(client, case)
+    assert "model file has no version" in r["error"] and r["model_version"] == ""
 
 
 def test_results_follow_case_access(client, case):

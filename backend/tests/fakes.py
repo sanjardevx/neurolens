@@ -89,16 +89,17 @@ def four(make) -> dict:
 
 # ---------- stand-in ONNX models (same inputs / outputs as the real ones, simple fixed rules) ----------
 
-def _save(graph, path) -> None:
+def _save(graph, path, meta: dict[str, str]) -> None:
     import onnx
     from onnx import helper
 
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    helper.set_model_props(model, meta)  # version etc., as neurolens_ml.onnx_meta writes them
     onnx.checker.check_model(model)
     onnx.save(model, str(path))
 
 
-def stub_classifier(path, winner: int = 0) -> None:
+def stub_classifier(path, winner: int = 0, version: str = "cls-stub-v1") -> None:
     """image [N, 3, H, W] → cams [N, 4, H/32, W/32] (one 32x32 conv) and logits = mean of cams. Class `winner` wins."""
     from onnx import TensorProto, helper, numpy_helper
 
@@ -115,10 +116,10 @@ def stub_classifier(path, winner: int = 0) -> None:
          helper.make_tensor_value_info("cams", TensorProto.FLOAT, ["n", 4, "hc", "wc"])],
         [numpy_helper.from_array(w, "w"), numpy_helper.from_array(b, "b"),
          numpy_helper.from_array(np.array([2, 3], np.int64), "axes")])
-    _save(graph, path)
+    _save(graph, path, {"version": version, "about": "test stand-in"})
 
 
-def stub_segmenter(path) -> None:
+def stub_segmenter(path, version: str = "seg-stub-v1", min_et: int = 0) -> None:
     """image [N, 4, 128³] → logits [N, 3, 128³] = normalized FLAIR - 2 for all 3 regions: the bright marker is 'tumor'."""
     from onnx import TensorProto, helper, numpy_helper
 
@@ -129,4 +130,4 @@ def stub_segmenter(path) -> None:
         [helper.make_tensor_value_info("image", TensorProto.FLOAT, ["n", 4, 128, 128, 128])],
         [helper.make_tensor_value_info("logits", TensorProto.FLOAT, ["n", 3, 128, 128, 128])],
         [numpy_helper.from_array(w, "w"), numpy_helper.from_array(np.full(3, -2.0, np.float32), "b")])
-    _save(graph, path)
+    _save(graph, path, {"version": version, "about": "test stand-in", "min_et_voxels": str(min_et)})

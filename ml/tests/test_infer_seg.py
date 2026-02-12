@@ -104,3 +104,24 @@ def test_label_map_round_trips_to_regions():
     labels = fake_mask()
     regions = np.stack([np.isin(labels, (1, 4)), labels > 0, labels == 4])
     assert np.array_equal(infer_seg.label_map(regions), labels)
+
+
+def test_onnx_file_carries_its_version_and_et_limit(tmp_path):
+    onnx = pytest.importorskip("onnx")
+    from onnx import TensorProto, helper
+
+    from neurolens_ml.onnx_meta import read, stamp
+
+    path = tmp_path / "m.onnx"
+    graph = helper.make_graph([helper.make_node("Identity", ["image"], ["logits"])], "g",
+                              [helper.make_tensor_value_info("image", TensorProto.FLOAT, [1])],
+                              [helper.make_tensor_value_info("logits", TensorProto.FLOAT, [1])])
+    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)]), str(path))
+    with pytest.raises(ValueError, match="no version"):
+        read(infer_seg.onnx_runner(path).session)
+    with pytest.raises(ValueError, match="missing"):
+        stamp(path, about="no version given")
+    stamp(path, version="seg-x-v2", min_et_voxels=0, about="fine-tuned")
+    stamp(path, about="fine-tuned on corrections")  # a later stamp keeps the other keys
+    assert read(infer_seg.onnx_runner(path).session) == {"version": "seg-x-v2", "min_et_voxels": "0",
+                                                         "about": "fine-tuned on corrections"}

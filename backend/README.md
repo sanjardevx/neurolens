@@ -16,6 +16,10 @@ uvicorn app.main:app --app-dir backend --reload   # from the repo root; reads .e
 Models: `MODEL_DIR` must hold `classifier.onnx` and `segmenter3d.onnx` (made by `neurolens_ml.export` and
 `neurolens_ml.export_seg`; not in git). Tests use tiny stand-in ONNX models with the same inputs and outputs.
 
+Model versions: each ONNX file carries its version (and the segmenter its small-ET limit) inside it
+(`neurolens_ml.onnx_meta`). A result stores the versions of the files that actually ran, so releasing a model is
+swapping the file and restarting; old results keep the version that made them. A file without a version is refused.
+
 ## Roles
 
 Only two roles: `doctor` and `admin`. The role is read from the login token's `app_metadata.role`,

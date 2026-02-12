@@ -8,7 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ErrorNote, Skeleton } from "@/components/states";
 import { api, type CaseRow } from "@/lib/api";
-import { resultOf, statusOf, whenOf } from "@/lib/cases";
+import { modelOf, resultOf, statusOf, whenOf } from "@/lib/cases";
 
 const POLL_MS = 5000;
 
@@ -147,7 +147,12 @@ export default function WorklistPage() {
                       </Link>
                       <div className="text-sm text-muted-foreground">{whenOf(c.created_at)}</div>
                     </TableCell>
-                    <TableCell>{resultOf(c)}</TableCell>
+                    <TableCell>
+                      {resultOf(c)}
+                      {modelOf(c.model_version) && (
+                        <div className="font-mono text-xs text-muted-foreground">{modelOf(c.model_version)}</div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <span
                         title={c.status === "failed" ? (c.error ?? undefined) : undefined}

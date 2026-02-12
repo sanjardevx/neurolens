@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { apiFileUrl, TUMOR_LABELS, type ResultOut } from "@/lib/api";
+import { apiFileUrl, TUMOR_LABELS, type ModelCard, type ResultOut } from "@/lib/api";
 
 // Same colors as the mask overlay in the viewer (BraTS convention), so a region reads the same everywhere
 const PARTS = [
@@ -112,7 +112,7 @@ export function ResultSummary({ caseId, result, reviewed, token }: {
         <p className="font-medium text-foreground">
           Research prototype, not a medical device. Check the scan yourself; the decision is yours.
         </p>
-        <p>Models: {result.model_version}</p>
+        <ModelList result={result} />
       </div>
     </section>
   );
@@ -164,5 +164,23 @@ function GradCam({ caseId, result, token }: { caseId: string; result: ResultOut;
         Red areas mattered most for the tumor type. It is a heatmap, not the tumor outline.
       </figcaption>
     </figure>
+  );
+}
+
+const MODEL_ROLES: Record<string, string> = { segmenter: "3D segmenter", classifier: "2D classifier" };
+
+/** Which model versions made this result, as read from the model files that ran. */
+function ModelList({ result }: { result: ResultOut }) {
+  const models = Object.entries(result.info?.models ?? {}) as [string, ModelCard][];
+  if (!models.length) return <p>Models: {result.model_version || "—"}</p>;
+  return (
+    <ul className="flex flex-col gap-0.5">
+      {models.map(([role, m]) => (
+        <li key={role}>
+          {MODEL_ROLES[role] ?? role}: <span className="font-mono text-foreground">{m.version}</span>
+          {m.about && <span> · {m.about}</span>}
+        </li>
+      ))}
+    </ul>
   );
 }

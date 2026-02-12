@@ -57,4 +57,8 @@ def onnx_classifier(path: str, threads: int | None = None) -> Callable[[np.ndarr
     if threads:
         opts.intra_op_num_threads = threads
     session = ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
-    return lambda x: tuple(session.run(["logits", "cams"], {"image": x.astype(np.float32)}))
+
+    def run(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return tuple(session.run(["logits", "cams"], {"image": x.astype(np.float32)}))
+    run.session = session  # for onnx_meta.read: the version this file carries
+    return run

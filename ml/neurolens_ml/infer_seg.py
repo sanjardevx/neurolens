@@ -84,12 +84,13 @@ def drop_small_et(mask: np.ndarray, min_voxels: int = MIN_ET_VOXELS) -> np.ndarr
 
 
 def segment(image: np.ndarray, run: Callable[[np.ndarray], np.ndarray], patch: int = PATCH,
-            progress: Callable[[float], None] | None = None) -> np.ndarray:
-    """RAS image [4, X, Y, Z] → region masks [3, X, Y, Z] (TC, WT, ET) on the same voxel grid."""
+            progress: Callable[[float], None] | None = None, min_et: int = MIN_ET_VOXELS) -> np.ndarray:
+    """RAS image [4, X, Y, Z] → region masks [3, X, Y, Z] (TC, WT, ET) on the same voxel grid.
+    min_et: the small-ET limit of this model version (its ONNX file carries it)."""
     box = brain_box(image)
     logits = sliding_window(normalize(image[(slice(None), *box)]), run, patch, progress=progress)
     mask = np.zeros((3, *image.shape[1:]), bool)
-    mask[(slice(None), *box)] = drop_small_et(logits > 0)  # sigmoid > 0.5
+    mask[(slice(None), *box)] = drop_small_et(logits > 0, min_et)  # sigmoid > 0.5
     return mask
 
 
@@ -100,7 +101,11 @@ def onnx_runner(path: str, threads: int | None = None) -> Callable[[np.ndarray],
     if threads:
         opts.intra_op_num_threads = threads
     session = ort.InferenceSession(str(path), opts, providers=["CPUExecutionProvider"])
-    return lambda x: session.run(None, {"image": x.astype(np.float32)})[0]
+
+    def run(x: np.ndarray) -> np.ndarray:
+        return session.run(None, {"image": x.astype(np.float32)})[0]
+    run.session = session  # for onnx_meta.read: the version this file carries
+    return run
 
 
 def label_map(mask: np.ndarray) -> np.ndarray:

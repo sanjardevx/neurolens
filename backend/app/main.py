@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from .analysis import Models, analyze, model_version
+from .analysis import Models, analyze
 from .auth import User, current_user, require
 from .config import get_settings
 from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Review, Scan, init_db
@@ -85,6 +85,7 @@ class CaseRow(CaseOut):
     progress: int | None = None
     error: str | None = None
     decision: str | None = None
+    model_version: str | None = None  # which models made the latest result ("" while it runs)
 
     @classmethod
     def of(cls, case: Case) -> "CaseRow":
@@ -98,7 +99,8 @@ class CaseRow(CaseOut):
             # the AI's confidence was for its own type, so it means nothing next to the doctor's type
             "tumor_type": tumor_type, "confidence": None if review and review.corrected_type else result and result.confidence,
             "tumor_cm3": volumes.get("whole_tumor"), "progress": result and result.progress,
-            "error": result and result.error, "decision": review and review.decision})
+            "error": result and result.error, "decision": review and review.decision,
+            "model_version": (result and result.model_version) or None})
 
 
 class ScanOut(BaseModel):
@@ -321,7 +323,8 @@ def register_routes(app: FastAPI) -> None:
         scan.file_format, scan.info, scan.qc_passed = fmt, info, True
         audit(db, user, "scan.upload", case.id, scan_id=scan.id, format=fmt)
         # Start the AI right away; it runs after the response is sent, the case shows its progress
-        result = Result(case_id=case.id, scan_id=scan.id, model_version=model_version(fmt))
+        # The version is filled in by the job from the model files that actually run
+        result = Result(case_id=case.id, scan_id=scan.id, model_version="")
         db.add(result)
         case.status = "processing"
         db.commit()

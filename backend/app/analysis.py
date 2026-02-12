@@ -13,13 +13,14 @@ import numpy as np
 from neurolens_ml.infer_cls import classify, onnx_classifier
 from neurolens_ml.infer_seg import label_map, load_ras, onnx_runner, segment
 from neurolens_ml.measure import measure
+from neurolens_ml.onnx_meta import read as read_meta
 from PIL import Image
 
 from .auth import User
 from .db import AuditLog, Case, Database, Result, Scan
 
+# The served files; each carries its own version (and the segmenter its small-ET limit), see neurolens_ml.onnx_meta
 CLASSIFIER, SEGMENTER = "classifier.onnx", "segmenter3d.onnx"
-MODEL_VERSIONS = {"classifier": "cls-b3-crop-v1", "segmenter": "seg-segresnet-v1"}
 MRI_TYPES = ("flair", "t1", "t1ce", "t2")
 
 
@@ -50,10 +51,10 @@ class Models:
             return self._seg
 
 
-def model_version(file_format: str) -> str:
-    if file_format == "image":
-        return MODEL_VERSIONS["classifier"]
-    return f"{MODEL_VERSIONS['segmenter']} + {MODEL_VERSIONS['classifier']}"
+def card(run) -> dict:
+    """What the result stores about a model that ran: its version and one line about it."""
+    meta = read_meta(run.session)
+    return {"version": meta["version"], "about": meta.get("about", "")}
 
 
 def tumor_slice_rgb(t1ce: np.ndarray, wt: np.ndarray) -> tuple[np.ndarray, int]:
@@ -69,25 +70,31 @@ def tumor_slice_rgb(t1ce: np.ndarray, wt: np.ndarray) -> tuple[np.ndarray, int]:
 
 def run_2d(scan_dir: Path, out_dir: Path, models: Models, report: Callable[[int], None]) -> dict:
     img = np.asarray(Image.open(scan_dir / "image.png").convert("RGB"))
-    out = classify(img, models.classifier())
+    cls = models.classifier()
+    out = classify(img, cls)
     Image.fromarray(out.pop("gradcam")).save(out_dir / "gradcam.png")
-    return out | {"gradcam_path": "gradcam.png", "info": {"classifier_input": "uploaded 2D slice"}}
+    return out | {"gradcam_path": "gradcam.png", "model_version": card(cls)["version"],
+                  "info": {"classifier_input": "uploaded 2D slice", "models": {"classifier": card(cls)}}}
 
 
 def run_3d(scan_dir: Path, out_dir: Path, models: Models, report: Callable[[int], None]) -> dict:
     image, affine = load_ras([scan_dir / f"{m}.nii.gz" for m in MRI_TYPES])
-    mask = segment(image, models.segmenter(), progress=lambda f: report(int(5 + 85 * f)))
+    seg, cls = models.segmenter(), models.classifier()
+    cards = {"segmenter": card(seg), "classifier": card(cls)}  # before the long run: a file without a version fails fast
+    min_et = int(read_meta(seg.session).get("min_et_voxels", 0))
+    mask = segment(image, seg, progress=lambda f: report(int(5 + 85 * f)), min_et=min_et)
     nib.save(nib.Nifti1Image(label_map(mask), affine), str(out_dir / "mask.nii.gz"))
     m = measure(image, mask, affine)
 
     slice_rgb, z = tumor_slice_rgb(image[MRI_TYPES.index("t1ce")], mask[1])
-    out = classify(slice_rgb, models.classifier())
+    out = classify(slice_rgb, cls)
     Image.fromarray(out.pop("gradcam")).save(out_dir / "gradcam.png")
     report(95)
     return out | {"volumes_cm3": m["volume_cm3"], "side": m["side"], "lobe_estimate": m["lobe_estimate"],
                   "mask_path": "mask.nii.gz", "gradcam_path": "gradcam.png",
+                  "model_version": f"{cards['segmenter']['version']} + {cards['classifier']['version']}",
                   "info": {"classifier_input": f"T1ce axial slice {z} (the 2D model sees one slice)",
-                           "right_share": m["right_share"]}}
+                           "right_share": m["right_share"], "models": cards}}
 
 
 def analyze(db: Database, storage: Path, models: Models, result_id: str, user: User) -> None:

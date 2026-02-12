@@ -44,6 +44,7 @@ export type CaseRow = {
   progress: number | null;
   error: string | null;
   decision: "approved" | "edited" | "rejected" | null;
+  model_version: string | null;
 };
 
 export const TUMOR_LABELS: Record<string, string> = {
@@ -56,6 +57,8 @@ export const TUMOR_LABELS: Record<string, string> = {
 export type CaseOut = Pick<CaseRow, "id" | "code" | "status" | "created_at" | "updated_at">;
 
 export type ScanOut = { id: string; file_format: string; created_at: string };
+
+export type ModelCard = { version: string; about: string };
 
 export type ResultOut = {
   id: string;
@@ -70,7 +73,11 @@ export type ResultOut = {
   lobe_estimate: string | null;
   has_mask: boolean;
   has_gradcam: boolean;
-  info: { classifier_input?: string; corrected_mask?: { at: string; volumes_cm3: Record<string, number> } } | null;
+  info: {
+    classifier_input?: string;
+    corrected_mask?: { at: string; volumes_cm3: Record<string, number> };
+    models?: Record<string, ModelCard>; // read from the model files that ran (older results have only model_version)
+  } | null;
   has_corrected_mask: boolean;
   error: string | null;
   created_at: string;

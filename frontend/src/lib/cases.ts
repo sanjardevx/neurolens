@@ -32,6 +32,11 @@ export function resultOf(c: Pick<CaseRow, "tumor_type" | "tumor_cm3" | "confiden
   return c.confidence !== null ? `${type} · ${Math.round(c.confidence * 100)}%` : type;
 }
 
+/** The main model of a result: the segmenter for 3D scans, the classifier for a 2D slice. */
+export function modelOf(version: string | null): string | null {
+  return version ? version.split(" + ")[0] : null;
+}
+
 export function whenOf(iso: string): string {
   // SQLite (local dev) sends times without a zone; they are UTC
   const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + "Z");
