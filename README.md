@@ -31,6 +31,8 @@ doctor login → new case (anonymous ID) → upload 3D MRI → quality check
 - **Privacy by design.** DICOM headers are never stored: a series becomes a volume of pixels + position, with a short allowlist of technical tags. Cases have anonymous codes, never names. Tested with a fake patient whose name and ID must not appear anywhere.
 - **Safe reports.** The report draft is written from the numbers only (type, volumes, location), never the image. An LLM (Ollama Cloud, one `.env` setting) may reword it, but its answer is refused if it changes a number, a tumor type or drops a sentence, and the template is used instead. Only the text the doctor approves goes into the signed PDF. Examples: [sample reports](docs/sample_reports.md).
 - **Doctor in the loop.** A 3D viewer (NiiVue) shows the scan with the AI mask per region; the doctor can fix the mask with a brush, then approve, edit or reject with a reason. The AI's own mask is kept next to the correction, so the difference can train the next model.
+- **Feedback loop.** Doctors' corrections are exported as a versioned training set, the segmenter is fine-tuned on them, and the new version replaces the old one only if it is not worse on the held-out test split. v2 learned the fixes (0.745 → 0.841 Dice on those cases) and gained a little on test (+0.004), so it is served ([details](#feedback-loop)).
+- **Traceable model versions.** Each model file carries its own version and settings; every result stores the versions that actually ran, and the worklist shows them. Releasing a model is swapping one file.
 - **A worklist built for reading.** Cases waiting for review come first, largest tumors on top. Upload shows real progress, the AI job reports its own progress, and every result is labeled a draft until a doctor approves it.
 - **Doctor-only, audited access.** Supabase login with two roles (doctor, admin). A doctor only reaches their own cases; every endpoint is tested with every kind of caller. Uploads, analyses and review decisions go to an audit log.
 
@@ -42,15 +44,15 @@ _Only measured numbers from real runs. `—` = not measured._
 |---|---|---|---|
 | Classifier | Accuracy | ≥ 95% | **99.4%** |
 | Classifier | Macro-F1 | ≥ 95% | **99.3%** |
-| 3D segmenter | Dice, whole tumor | ≥ 0.85 | **0.929** |
-| 3D segmenter | Dice, tumor core | ≥ 0.75 | **0.908** |
-| 3D segmenter | Dice, enhancing tumor | ≥ 0.70 | **0.866** |
+| 3D segmenter (v2, served) | Dice, whole tumor | ≥ 0.85 | **0.928** |
+| 3D segmenter (v2, served) | Dice, tumor core | ≥ 0.75 | **0.914** |
+| 3D segmenter (v2, served) | Dice, enhancing tumor | ≥ 0.70 | **0.872** |
 
 Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean test images, 4 errors, full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png) · [Model card](ml/MODEL_CARD.md) (intended use, per-class scores, limitations).
 
 **ONNX** ([report](ml/results/05_onnx/onnx_report.json), [`05_onnx_export.ipynb`](ml/notebooks/05_onnx_export.ipynb)): 43.7 MB file, 710 / 710 val predictions identical to PyTorch (max logit difference 0.00002), about 53 ms per scan on a laptop CPU (Apple M3) vs 345 ms in PyTorch.
 
-Final segmenter: SegResNet (MONAI, 4.7M parameters) on BraTS 2021, 188 test patients never used for training or tuning, Dice averaged per patient (a patient with no enhancing tumor scores 1 only if none is predicted). Trained 60 epochs in 4.8 h on one T4 GPU ([curves](ml/results/07_segresnet/curves_seg_segresnet.png)); val Dice 0.926 / 0.917 / 0.864. The enhancing score uses one rule picked on val before the single test run: predicted enhancing tumor under 50 mm³ is dropped (it is mostly a false alarm). Without it, test enhancing Dice is 0.855 ([test report](ml/results/08_seg_eval/metrics_seg_test_segresnet.json)). Median per-patient Dice: 0.948 whole tumor, 0.958 core, 0.924 enhancing; median whole-tumor volume error 3.6 cm³.
+Base segmenter (v1): SegResNet (MONAI, 4.7M parameters) on BraTS 2021, 188 test patients never used for training or tuning, Dice averaged per patient (a patient with no enhancing tumor scores 1 only if none is predicted). Trained 60 epochs in 4.8 h on one T4 GPU ([curves](ml/results/07_segresnet/curves_seg_segresnet.png)); val Dice 0.926 / 0.917 / 0.864. The enhancing score uses one rule picked on val before the single test run: predicted enhancing tumor under 50 mm³ is dropped (it is mostly a false alarm). Without it, test enhancing Dice is 0.855 ([test report](ml/results/08_seg_eval/metrics_seg_test_segresnet.json)). v1 test Dice: 0.929 whole tumor, 0.908 core, 0.866 enhancing; median per-patient Dice 0.948 / 0.958 / 0.924; median whole-tumor volume error 3.6 cm³. The served v2 is v1 fine-tuned on corrected cases ([feedback loop](#feedback-loop)).
 
 Volumes use the scan's own voxel size (from the file header), so 3 mm slices or tilted scans are measured right. The side comes from the share of tumor right of the midline; the lobe is a position rule inside the brain box, not an atlas, and is shown to the doctor as an estimate ([`measure.py`](ml/neurolens_ml/measure.py)). Checked by eye on 6 val patients ([slices](ml/results/09_seg_onnx/onnx_seg_cases.png)): the side fits all 6, the lobe 5 of 6 (a tumor at the back of the head is called temporal; it looks occipital).
 
@@ -74,6 +76,25 @@ The classifier test split was opened twice: first for the earlier B0 + B3 ensemb
 | EfficientNet-B3, 384 px, strong augmentation | 97.5% | 97.4% | 18 |
 
 TTA = the prediction is averaged with a left-right flipped copy. Training runs: [`02_crop`](ml/results/02_crop) (final), [`02_baseline_rerun`](ml/results/02_baseline_rerun), [`02_strong`](ml/results/02_strong), [`02_baseline`](ml/results/02_baseline).
+
+## Feedback loop
+
+```
+doctor fixes a mask → export (versioned training set) → fine-tune on Kaggle → compare on test → serve if not worse
+```
+
+No hospital has used the app yet, so the corrections are **simulated**: the 40 val patients where v1 did worst (mean Dice 0.745), with their expert BraTS masks standing in for a doctor's fix. The API's real export ([`export_feedback.py`](backend/scripts/export_feedback.py)) writes the same layout, so real corrections drop in unchanged.
+
+Fine-tuning ([`10_feedback_finetune.ipynb`](ml/notebooks/10_feedback_finetune.ipynb)) starts from v1 with BraTS train plus the corrected cases repeated 10× per epoch (16 epochs, 1.9 h on a T4). The other 148 val patients guard against forgetting. The rule, fixed before the run: keep the epoch that learned the corrections best while staying within 0.005 mean Dice of v1 on those 148; if none beats v1, v1 stays. A first, stricter run (lower learning rate, "must beat v1 on the 148") kept v1; both runs are reported ([run 1](ml/results/10_feedback_v1kept), [run 2](ml/results/10_feedback_fb2)).
+
+| Mean Dice | v1 | v2 |
+|---|---|---|
+| 40 corrected val cases (training data for v2: shows learning) | 0.745 | **0.841** |
+| 148 other val cases (guard) | 0.943 | 0.943 |
+| **188 test patients** (never seen by either; v1 as served, with its 50 mm³ ET rule) | 0.901 | **0.905** |
+| 37 test patients with a small enhancing tumor (< 5 cm³) | 0.785 | 0.792 |
+
+Test ([`11_compare_versions.ipynb`](ml/notebooks/11_compare_versions.ipynb)) was opened once for both models, each with its small-ET rule tuned on the 148 guard cases (both came out 0). With that preset rule v2 gains +0.007 (95% bootstrap interval +0.002 to +0.014) and the decision rule ("keep v2 if at most 0.005 below v1") kept v2. Checked afterwards: much of that gain is two patients without enhancing tumor where v1 drew a 3–7 voxel speck, which v1's own served 50 mm³ rule already removes. **Against v1 as served, the gain is +0.004 (interval +0.001 to +0.007)**: 17 patients improve, 159 stay within 0.01, 12 drop (the worst by 0.036). On small enhancing tumors v2 is not clearly better (+0.008, interval −0.002 to +0.021). So v2 learned the corrections, did not forget, and is a small, real step up overall. The segmentation test split had been opened once before, for v1 alone (notebook 08); this was its second and last use. [Per-patient chart](ml/results/11_compare_versions/compare_test_seg.png).
 
 ## Explainability
 
@@ -156,6 +177,8 @@ python -m neurolens_ml.prep_brats --data <BraTS folder>   # check the 3D data: c
 python -m neurolens_ml.split_brats                        # patient split from brats_cases.csv, no scans needed
 python -m neurolens_ml.plot_brats  --data <BraTS folder>   # slices with the expert mask on top
 python -m neurolens_ml.train_seg  --config ml/configs/seg_segresnet.yaml --data <BraTS folder>
+python -m neurolens_ml.finetune_seg --config ml/configs/seg_finetune.yaml --data <BraTS folder>  # feedback loop
+python -m neurolens_ml.compare_seg --old-config ml/configs/seg_segresnet.yaml --new-config ml/configs/seg_finetune.yaml
 ```
 
 `evaluate` uses val by default; `--split test` is for the final model only. On Kaggle, [`02_classifier.ipynb`](ml/notebooks/02_classifier.ipynb) clones the repo and runs the same `train` command on a GPU.
@@ -167,6 +190,7 @@ pip install -e "backend[dev]" && pip install --no-deps -e ml
 pytest backend                  # auth, roles on every endpoint, uploads and privacy, AI jobs, reviews
 docker compose up --build       # API on http://localhost:8000 (docs at /docs)
 python backend/scripts/smoke_flow.py --url http://localhost:8000 --doctor-token <jwt> --admin-token <jwt>
+python backend/scripts/export_feedback.py --out feedback --zip   # doctors' corrections → training set for finetune_seg
 ```
 
 Dashboard (needs `frontend/.env.local` with the Supabase URL and publishable key, and the API running):
