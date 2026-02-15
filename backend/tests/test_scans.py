@@ -1,5 +1,4 @@
 import gzip
-import io
 
 import nibabel as nib
 import numpy as np

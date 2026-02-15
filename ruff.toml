@@ -1,0 +1,5 @@
+line-length = 120
+target-version = "py311"
+
+[lint.per-file-ignores]
+"*.ipynb" = ["E402"]  # notebooks install packages first, then import them

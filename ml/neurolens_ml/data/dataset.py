@@ -2,7 +2,6 @@
 from pathlib import Path
 
 import albumentations as A
-import cv2
 import numpy as np
 import pandas as pd
 from albumentations.pytorch import ToTensorV2

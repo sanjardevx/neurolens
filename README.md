@@ -1,5 +1,7 @@
 # NeuroLens
 
+[![CI](https://github.com/sanjardevx/neurolens/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/sanjardevx/neurolens/actions/workflows/ci.yml)
+
 Brain tumor MRI analysis for doctors: **classify** the scan, **show where the model looked**, **segment the tumor in 3D** and measure it, and let a **doctor review and approve** the result before any report leaves the system.
 
 > ⚠️ Research and portfolio project, **not a medical device**. Results are not a diagnosis. Trained only on public datasets.

@@ -36,9 +36,12 @@ def test_bad_tokens_are_rejected(client, headers):
     assert client.get("/me", headers=headers).status_code == 401
 
 
+def b64(b: bytes) -> bytes:
+    return base64.urlsafe_b64encode(b).rstrip(b"=")
+
+
 def forged(alg: str, secret: bytes = b"") -> str:
     """A hand-made token claiming admin, signed with HMAC (or not at all)."""
-    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=")
     header = b64(json.dumps({"alg": alg, "typ": "JWT"}).encode())
     payload = b64(json.dumps({"sub": "x", "aud": "authenticated", "iss": f"{ISSUER_URL}/auth/v1",
                               "exp": int(time.time()) + 600, "app_metadata": {"role": "admin"}}).encode())
