@@ -152,7 +152,7 @@ Many images are the same scan saved again with other contrast or sharpening. In 
 | Serving | ONNX Runtime, FastAPI, Docker |
 | Frontend | Next.js, Tailwind, shadcn/ui, NiiVue |
 | Data & reports | Supabase, Ollama / LLM API |
-| CI / Deploy | GitHub Actions, Hugging Face Spaces, Vercel |
+| CI / Deploy | GitHub Actions, Google Cloud Run, Vercel |
 
 ## Project layout
 

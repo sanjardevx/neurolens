@@ -22,20 +22,22 @@ swapping the file and restarting; old results keep the version that made them. A
 
 ## Deploy
 
-The live API runs on a Hugging Face Space (Docker, free CPU). `.github/workflows/deploy.yml` uploads `backend/`,
-the inference code from `ml/` and `deploy/hf-space/README.md` to the Space after CI passes on `master`; the Space
-builds `backend/Dockerfile` and downloads the two ONNX files from the model repo named in `MODEL_REPO`.
+The live API runs on Google Cloud Run (2 vCPU, 4 GiB, scales to zero). After CI passes on `master`,
+`.github/workflows/deploy.yml` builds `backend/Dockerfile` (which downloads the two ONNX files from the public model
+repo in `MODEL_REPO`), pushes the image to Artifact Registry and deploys it. GitHub logs in to Google Cloud without a
+stored key (Workload Identity Federation, limited to this repo).
 
-| Space setting | Kind | Value |
+| Setting | Where | Value |
 |---|---|---|
-| `MODEL_REPO` | variable | the Hugging Face model repo with `classifier.onnx` + `segmenter3d.onnx` |
-| `SUPABASE_URL`, `CORS_ORIGINS` | variables | project URL; the dashboard's URL |
-| `REPORT_PROVIDER` | variable | `template` (no LLM key on the public demo) |
-| `DATABASE_URL`, `SUPABASE_SECRET_KEY` | secrets | Postgres session pooler URL; server key for the private `neurolens` storage bucket |
+| `GCP_PROJECT`, `GCP_REGION` | GitHub variables | Google Cloud project id; region (same as the Supabase database) |
+| `GCP_WIF_PROVIDER`, `GCP_DEPLOY_SA`, `GCP_RUN_SA` | GitHub variables | the GitHub identity provider; the deploy and runtime service accounts |
+| `MODEL_REPO` | GitHub variable | Hugging Face model repo with `classifier.onnx` + `segmenter3d.onnx` |
+| `SUPABASE_URL`, `CORS_ORIGINS` | GitHub variables | project URL; the dashboard's URL |
+| `DATABASE_URL`, `SUPABASE_SECRET_KEY` | Google Secret Manager | `neurolens-database-url`, `neurolens-supabase-secret-key` |
 
-The Space's disk is lost on restart, so with `SUPABASE_SECRET_KEY` set every scan and result folder is mirrored to
-the private bucket and downloaded back when needed (`app/files.py`). GitHub needs the secret `HF_TOKEN` (write access
-to the Space only) and the variable `HF_SPACE` (`<user>/<space>`).
+The live demo writes template reports only (no LLM key on the server). A Cloud Run instance loses its disk when it
+stops, so every scan and result folder is mirrored to the private Supabase bucket and downloaded back when needed
+(`app/files.py`). Cloud Run accepts at most 32 MB per request: upload `.nii.gz` files, not raw `.nii`.
 
 ## Roles
 

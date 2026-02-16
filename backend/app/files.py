@@ -1,6 +1,6 @@
 """Scan and result files: local disk for work, mirrored to a private Supabase Storage bucket when configured.
 
-A hosted server can lose its disk on restart (a free Hugging Face Space does) while the case list lives in
+A hosted server can lose its disk on restart (a Cloud Run instance does) while the case list lives in
 Postgres; the mirror keeps every case openable. Folders are flat (cases/<case>/<scan>/, results/<result>/):
 push() uploads a folder after it is written, pull() brings it back before it is read. Without a key
 (local dev, tests) both do nothing and the disk is the only copy.

@@ -1,6 +1,6 @@
 name: Deploy
 
-# The API goes to the Hugging Face Space only after CI passed on master. The dashboard deploys through
+# The API goes to Google Cloud Run only after CI passed on master. The dashboard deploys through
 # Vercel's own Git integration (production branch: master), so it needs no job here.
 on:
   workflow_run:
@@ -10,36 +10,36 @@ on:
 
 jobs:
   api:
-    if: github.event.workflow_run.conclusion == 'success' && vars.HF_SPACE != ''
+    if: github.event.workflow_run.conclusion == 'success' && vars.GCP_PROJECT != ''
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # keyless login to Google Cloud (Workload Identity Federation): no key stored in GitHub
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/neurolens/api:${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}  # exactly the commit CI checked
-      - uses: actions/setup-python@v6
+      - uses: google-github-actions/auth@v3
         with:
-          python-version: "3.12"
-      - run: pip install "huggingface_hub>=0.30,<2"
-      # The Space builds backend/Dockerfile from its repo root, with the same layout as here
-      - name: Assemble the Space
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      # The image downloads the two ONNX files from the public model repo at build time
+      - name: Build and push the image
         run: |
-          mkdir -p space/backend space/ml
-          cp backend/Dockerfile space/Dockerfile
-          cp .dockerignore deploy/hf-space/README.md space/
-          cp -r backend/pyproject.toml backend/app space/backend/
-          cp -r ml/pyproject.toml ml/neurolens_ml space/ml/
-      - name: Upload to the Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE: ${{ vars.HF_SPACE }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build -f backend/Dockerfile --build-arg MODEL_REPO=${{ vars.MODEL_REPO }} -t "$IMAGE" .
+          docker push "$IMAGE"
+      # 4 GiB: one 3D segmentation peaks at ~1.4 GB. No CPU throttling: the analysis runs after the upload
+      # response is sent. One instance at most: jobs live in that process, and it caps the cost.
+      - name: Deploy to Cloud Run
         run: |
-          python - <<'PY'
-          import os
-          from huggingface_hub import HfApi
-
-          HfApi(token=os.environ["HF_TOKEN"]).upload_folder(
-              folder_path="space", repo_id=os.environ["HF_SPACE"], repo_type="space",
-              delete_patterns=["backend/**", "ml/**"],  # drop files removed since the last deploy
-              commit_message=f"deploy {os.environ['SHA'][:7]}")
-          PY
+          gcloud run deploy neurolens-api --image "$IMAGE" --region "$REGION" --quiet \
+            --port 8000 --cpu 2 --memory 4Gi --no-cpu-throttling --min-instances 0 --max-instances 1 \
+            --timeout 600 --allow-unauthenticated \
+            --service-account "${{ vars.GCP_RUN_SA }}" \
+            --set-env-vars "^@^SUPABASE_URL=${{ vars.SUPABASE_URL }}@CORS_ORIGINS=${{ vars.CORS_ORIGINS }}@REPORT_PROVIDER=template@STORAGE_BUCKET=neurolens" \
+            --set-secrets "DATABASE_URL=neurolens-database-url:latest,SUPABASE_SECRET_KEY=neurolens-supabase-secret-key:latest"

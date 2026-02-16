@@ -15,8 +15,8 @@ COPY backend/pyproject.toml backend/pyproject.toml
 COPY backend/app backend/app
 RUN pip install ./backend
 
-# Models: a mounted volume (docker compose), or downloaded at build from a Hugging Face model repo (the hosted
-# Space sets MODEL_REPO). The files carry their own version, so the API reports exactly what was downloaded.
+# Models: a mounted volume (docker compose), or downloaded at build from a Hugging Face model repo (the deploy
+# workflow sets MODEL_REPO). The files carry their own version, so the API reports exactly what was downloaded.
 ARG MODEL_REPO=""
 RUN useradd --create-home app && mkdir -p /data/storage /models && chown -R app /data
 RUN if [ -n "$MODEL_REPO" ]; then for f in classifier.onnx segmenter3d.onnx; do \
