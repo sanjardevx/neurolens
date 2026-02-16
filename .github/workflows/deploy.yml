@@ -1,6 +1,6 @@
 name: Deploy
 
-# The API goes to Google Cloud Run only after CI passed on master. The dashboard deploys through
+# The API goes to Azure Container Apps only after CI passed on master. The dashboard deploys through
 # Vercel's own Git integration (production branch: master), so it needs no job here.
 on:
   workflow_run:
@@ -10,36 +10,33 @@ on:
 
 jobs:
   api:
-    if: github.event.workflow_run.conclusion == 'success' && vars.GCP_PROJECT != ''
+    if: github.event.workflow_run.conclusion == 'success' && vars.AZURE_CLIENT_ID != ''
     runs-on: ubuntu-latest
+    environment: production  # Azure trusts GitHub logins from this environment only
     permissions:
       contents: read
-      id-token: write  # keyless login to Google Cloud (Workload Identity Federation): no key stored in GitHub
+      packages: write  # push the image to GitHub Container Registry
+      id-token: write  # keyless login to Azure: no password stored in GitHub
     env:
-      REGION: ${{ vars.GCP_REGION }}
-      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/neurolens/api:${{ github.event.workflow_run.head_sha }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/neurolens-api:${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}  # exactly the commit CI checked
-      - uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SA }}
-      - uses: google-github-actions/setup-gcloud@v3
       # The image downloads the two ONNX files from the public model repo at build time
       - name: Build and push the image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker build -f backend/Dockerfile --build-arg MODEL_REPO=${{ vars.MODEL_REPO }} -t "$IMAGE" .
           docker push "$IMAGE"
-      # 4 GiB: one 3D segmentation peaks at ~1.4 GB. No CPU throttling: the analysis runs after the upload
-      # response is sent. One instance at most: jobs live in that process, and it caps the cost.
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy neurolens-api --image "$IMAGE" --region "$REGION" --quiet \
-            --port 8000 --cpu 2 --memory 4Gi --no-cpu-throttling --min-instances 0 --max-instances 1 \
-            --timeout 600 --allow-unauthenticated \
-            --service-account "${{ vars.GCP_RUN_SA }}" \
-            --set-env-vars "^@^SUPABASE_URL=${{ vars.SUPABASE_URL }}@CORS_ORIGINS=${{ vars.CORS_ORIGINS }}@REPORT_PROVIDER=template@STORAGE_BUCKET=neurolens" \
-            --set-secrets "DATABASE_URL=neurolens-database-url:latest,SUPABASE_SECRET_KEY=neurolens-supabase-secret-key:latest"
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Size, scaling, settings and secrets live on the container app (set once, see backend/README.md);
+      # a deploy only swaps the image
+      - name: Deploy
+        run: az containerapp update --name neurolens-api --resource-group neurolens --image "$IMAGE" --output none
