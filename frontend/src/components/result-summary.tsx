@@ -27,6 +27,13 @@ export function ResultSummary({ caseId, result, reviewed, token }: {
   const is3d = volumes !== null;
   const found = is3d && (volumes.whole_tumor ?? 0) > 0;
   const probs = Object.entries(result.probabilities ?? {}).sort((a, b) => b[1] - a[1]);
+  // The 2D model sees one slice and was trained on another dataset; when it contradicts the 3D outline,
+  // show the conflict instead of a confident type (same rule as the report notes)
+  const typed = result.tumor_type !== null && result.tumor_type !== "notumor";
+  const disagree = is3d && result.tumor_type !== null && typed !== found;
+  const typeNote = result.confidence === null ? undefined
+    : disagree ? `2D model: ${typeLabel(result.tumor_type!)} ${pct(result.confidence)} · ${found ? "3D outlined a tumor" : "no 3D outline"}`
+    : `${pct(result.confidence)} from the 2D model`;
   const where = result.side
     ? `${result.side[0].toUpperCase()}${result.side.slice(1)}${result.lobe_estimate ? ` · ${result.lobe_estimate} (est.)` : ""}`
     : is3d ? "No tumor found" : "Not measured";
@@ -38,8 +45,8 @@ export function ResultSummary({ caseId, result, reviewed, token }: {
       </h2>
 
       <dl className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4">
-        <Fact label="Tumor type" value={result.tumor_type ? typeLabel(result.tumor_type) : "—"}
-              note={result.confidence !== null ? `${pct(result.confidence)} from the 2D model` : undefined} />
+        <Fact label="Tumor type" value={disagree ? "Models disagree" : result.tumor_type ? typeLabel(result.tumor_type) : "—"}
+              note={typeNote} />
         <Fact label="Whole tumor" value={!is3d ? "Not measured" : found ? cm3(volumes.whole_tumor) : "None found"}
               note={!is3d ? "A 2D slice has no volume" : corrected
                 ? `Your corrected mask · AI: ${cm3(result.volumes_cm3?.whole_tumor)}` : "3D segmentation"} />

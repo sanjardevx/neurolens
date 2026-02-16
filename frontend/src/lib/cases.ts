@@ -28,7 +28,7 @@ export function resultOf(c: Pick<CaseRow, "tumor_type" | "tumor_cm3" | "confiden
   if (!c.tumor_type) return "—";
   const type = TUMOR_LABELS[c.tumor_type] ?? c.tumor_type;
   // The 3D model measures the tumor; a single 2D slice only gives the type and its confidence
-  if (c.tumor_cm3) return `${type} · ${c.tumor_cm3.toFixed(1)} cm³`;
+  if (c.tumor_cm3) return `${c.tumor_type === "notumor" ? "Models disagree" : type} · ${c.tumor_cm3.toFixed(1)} cm³`;
   return c.confidence !== null ? `${type} · ${Math.round(c.confidence * 100)}%` : type;
 }
 
