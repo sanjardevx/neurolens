@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./neurolens.db"
     # Where de-identified scans and results are written (a mounted volume in Docker)
     storage_dir: str = "./storage"
+    # Mirror of the files in a private Supabase Storage bucket (hosted servers can lose their disk); off without a key
+    supabase_secret_key: str = ""
+    storage_bucket: str = "neurolens"
     max_upload_mb: int = 500
     # Folder with classifier.onnx and segmenter3d.onnx (not in git; exported by ml/ export commands)
     model_dir: str = "./models"

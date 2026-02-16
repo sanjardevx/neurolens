@@ -15,8 +15,13 @@ COPY backend/pyproject.toml backend/pyproject.toml
 COPY backend/app backend/app
 RUN pip install ./backend
 
-# Models and data come from mounted volumes; run as a normal user
+# Models: a mounted volume (docker compose), or downloaded at build from a Hugging Face model repo (the hosted
+# Space sets MODEL_REPO). The files carry their own version, so the API reports exactly what was downloaded.
+ARG MODEL_REPO=""
 RUN useradd --create-home app && mkdir -p /data/storage /models && chown -R app /data
+RUN if [ -n "$MODEL_REPO" ]; then for f in classifier.onnx segmenter3d.onnx; do \
+      python -c "import sys, urllib.request; urllib.request.urlretrieve(f'https://huggingface.co/{sys.argv[1]}/resolve/main/{sys.argv[2]}', f'/models/{sys.argv[2]}')" "$MODEL_REPO" "$f" \
+      || exit 1; done; fi
 USER app
 WORKDIR /app/backend
 ENV MODEL_DIR=/models STORAGE_DIR=/data/storage DATABASE_URL=sqlite:////data/neurolens.db

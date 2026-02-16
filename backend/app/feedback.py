@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from .db import Case, Result
+from .files import FileStore
 from .masks import CORRECTED
 
 MRI = ("flair", "t1", "t1ce", "t2")
@@ -47,7 +48,7 @@ def save_ras(src: Path, dst: Path) -> None:
     nib.save(nib.as_closest_canonical(nib.load(src)), dst)
 
 
-def export_feedback(db: Session, storage: Path, out_root: Path, tag: str | None = None) -> dict:
+def export_feedback(db: Session, files: FileStore, out_root: Path, tag: str | None = None) -> dict:
     """Write <out_root>/<tag>/ with the cases, manifest.csv and summary.json; returns the summary."""
     cases = db.scalars(select(Case).where(Case.status == "reviewed")
                        .options(selectinload(Case.reviews), selectinload(Case.scans)))
@@ -58,7 +59,7 @@ def export_feedback(db: Session, storage: Path, out_root: Path, tag: str | None 
         result = db.get(Result, review.result_id)
         if result is None or not result.mask_path:  # 2D results have no mask to learn from
             continue
-        out_dir = storage / "results" / result.id
+        out_dir = files.pull(f"results/{result.id}")
         corrected = (result.info or {}).get("corrected_mask")
         ai = np.asarray(nib.load(out_dir / result.mask_path).dataobj) > 0
         doc = np.asarray(nib.load(out_dir / CORRECTED).dataobj) > 0 if corrected else None
@@ -87,9 +88,9 @@ def export_feedback(db: Session, storage: Path, out_root: Path, tag: str | None 
         scan = next(s for s in db.get(Case, result.case_id).scans if s.id == result.scan_id)
         case_dir = root / row.group / row.case_code
         case_dir.mkdir(parents=True)
+        scan_dir, results = files.pull(scan.storage_path), files.root / "results" / result.id
         for m in MRI:
-            save_ras(storage / scan.storage_path / f"{m}.nii.gz", case_dir / f"{row.case_code}_{m}.nii.gz")
-        results = storage / "results" / result.id
+            save_ras(scan_dir / f"{m}.nii.gz", case_dir / f"{row.case_code}_{m}.nii.gz")
         save_ras(results / result.mask_path, case_dir / f"{row.case_code}_ai.nii.gz")
         if row.group == "train":  # the doctor's mask is the training label, in BraTS label values 1 / 2 / 4
             save_ras(results / CORRECTED, case_dir / f"{row.case_code}_seg.nii.gz")

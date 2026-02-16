@@ -131,3 +131,30 @@ def stub_segmenter(path, version: str = "seg-stub-v1", min_et: int = 0) -> None:
         [helper.make_tensor_value_info("logits", TensorProto.FLOAT, ["n", 3, 128, 128, 128])],
         [numpy_helper.from_array(w, "w"), numpy_helper.from_array(np.full(3, -2.0, np.float32), "b")])
     _save(graph, path, {"version": version, "about": "test stand-in", "min_et_voxels": str(min_et)})
+
+
+class FakeBucket:
+    """Supabase Storage stand-in (upload / list / download), for httpx.MockTransport."""
+
+    def __init__(self):
+        self.objects: dict[str, bytes] = {}
+        self.headers: list[dict] = []
+
+    def __call__(self, request):
+        import json
+
+        import httpx
+
+        self.headers.append(dict(request.headers))
+        path = request.url.path.removeprefix("/storage/v1")
+        if request.method == "POST" and path.startswith("/object/list/"):
+            prefix = json.loads(request.content)["prefix"].rstrip("/") + "/"
+            names = [k.removeprefix(prefix) for k in self.objects if k.startswith(prefix)]
+            return httpx.Response(200, json=[{"name": n, "id": "x"} for n in names if "/" not in n])
+        key = path.split("/", 3)[3]  # /object/<bucket>/<key>
+        if request.method == "POST":
+            self.objects[key] = request.content
+            return httpx.Response(200, json={"Key": key})
+        if key in self.objects:
+            return httpx.Response(200, content=self.objects[key])
+        return httpx.Response(400, json={"error": "not found"})

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.config import get_settings  # noqa: E402
 from app.db import Database  # noqa: E402
 from app.feedback import export_feedback  # noqa: E402
+from app.files import FileStore  # noqa: E402
 
 
 def main() -> None:
@@ -26,7 +27,8 @@ def main() -> None:
     s = get_settings()
     db = Database(s.database_url)
     with db.sessions() as session:
-        summary = export_feedback(session, Path(s.storage_dir), Path(args.out), args.tag)
+        files = FileStore(s.storage_dir, s.supabase_url, s.supabase_secret_key, s.storage_bucket)
+        summary = export_feedback(session, files, Path(args.out), args.tag)
     print(summary)
     if args.zip:
         print("zip:", shutil.make_archive(str(Path(args.out) / summary["tag"]), "zip", Path(args.out), summary["tag"]))

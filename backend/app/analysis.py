@@ -18,6 +18,7 @@ from PIL import Image
 
 from .auth import User
 from .db import AuditLog, Case, Database, Result, Scan
+from .files import FileStore
 
 # The served files; each carries its own version (and the segmenter its small-ET limit), see neurolens_ml.onnx_meta
 CLASSIFIER, SEGMENTER = "classifier.onnx", "segmenter3d.onnx"
@@ -97,12 +98,12 @@ def run_3d(scan_dir: Path, out_dir: Path, models: Models, report: Callable[[int]
                            "right_share": m["right_share"], "models": cards}}
 
 
-def analyze(db: Database, storage: Path, models: Models, result_id: str, user: User) -> None:
+def analyze(db: Database, files: FileStore, models: Models, result_id: str, user: User) -> None:
     """Background job. Progress and the outcome are written to the result row; the case ends ready or failed."""
     with db.sessions() as s:
         result = s.get(Result, result_id)
         scan, case = s.get(Scan, result.scan_id), s.get(Case, result.case_id)
-        out_dir = storage / "results" / result.id
+        out_dir = files.root / "results" / result.id
         out_dir.mkdir(parents=True, exist_ok=True)
 
         def report(pct: int) -> None:
@@ -111,7 +112,8 @@ def analyze(db: Database, storage: Path, models: Models, result_id: str, user: U
 
         try:
             run = run_2d if scan.file_format == "image" else run_3d
-            out = run(storage / scan.storage_path, out_dir, models, report)
+            out = run(files.pull(scan.storage_path), out_dir, models, report)
+            files.push(f"results/{result.id}")  # before "ready": a restart must not lose the outputs
             for key, value in out.items():
                 setattr(result, key, value)
             # 100% only in the same commit as the outputs: a client that sees 100 always sees the result

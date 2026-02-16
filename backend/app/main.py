@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 import numpy as np
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session, selectinload
 from .analysis import Models, analyze
 from .auth import User, current_user, require
 from .config import get_settings
+from .files import FileStore, FileStoreError
 from .db import DECISIONS, REJECT_REASONS, AuditLog, Case, Database, Result, Review, Scan, init_db
 from .llm import LLM, LLMError
 from .masks import CORRECTED, MaskError, changed_voxels, read_corrected, save_corrected
@@ -48,6 +50,8 @@ def create_app(database_url: str | None = None, storage_dir: str | None = None, 
                   description="Research and portfolio project, not a medical device.")
     app.state.db = db
     app.state.storage = Path(storage_dir or settings.storage_dir)
+    app.state.files = FileStore(app.state.storage, settings.supabase_url, settings.supabase_secret_key,
+                                settings.storage_bucket)
     app.state.models = Models(model_dir or settings.model_dir)
     app.state.max_upload_bytes = settings.max_upload_mb * 1024 * 1024
     app.state.llm = (LLM(settings.llm_base_url, settings.llm_api_key, settings.llm_model, settings.llm_timeout_s)
@@ -321,6 +325,11 @@ def register_routes(app: FastAPI) -> None:
             db.commit()
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
         scan.file_format, scan.info, scan.qc_passed = fmt, info, True
+        try:
+            request.app.state.files.push(scan.storage_path)
+        except (FileStoreError, httpx.HTTPError) as e:
+            db.rollback()
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "File storage is not reachable; try again") from e
         audit(db, user, "scan.upload", case.id, scan_id=scan.id, format=fmt)
         # Start the AI right away; it runs after the response is sent, the case shows its progress
         # The version is filled in by the job from the model files that actually run
@@ -329,7 +338,7 @@ def register_routes(app: FastAPI) -> None:
         case.status = "processing"
         db.commit()
         app = request.app
-        background.add_task(analyze, app.state.db, app.state.storage, app.state.models, result.id, user)
+        background.add_task(analyze, app.state.db, app.state.files, app.state.models, result.id, user)
         return scan
 
     @app.get("/cases/{case_id}/scans", response_model=list[ScanOut])
@@ -344,8 +353,10 @@ def register_routes(app: FastAPI) -> None:
         case = get_case_for(db, user, case_id)
         scan = db.get(Scan, scan_id)
         name = {**{m: f"{m}.nii.gz" for m in MODALITIES}, "image": "image.png"}.get(kind)
-        path = request.app.state.storage / scan.storage_path / name if scan and name else None
-        if scan is None or scan.case_id != case.id or path is None or not path.is_file():
+        if scan is None or scan.case_id != case.id or not name:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+        path = request.app.state.files.pull(scan.storage_path) / name
+        if not path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
         media = "image/png" if kind == "image" else "application/gzip"
         return medical_file(path, media, f"{case.code}_{name}")
@@ -419,7 +430,7 @@ def register_routes(app: FastAPI) -> None:
         if result is None or result.case_id != case.id or not name:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
         media = "image/png" if name.endswith(".png") else "application/gzip"
-        return medical_file(request.app.state.storage / "results" / result.id / name, media, f"{case.code}_{name}")
+        return medical_file(request.app.state.files.pull(f"results/{result.id}") / name, media, f"{case.code}_{name}")
 
     @app.post("/cases/{case_id}/results/{result_id}/mask", response_model=ResultOut)
     def correct_mask(case_id: str, result_id: str, request: Request, mask: UploadFile = File(...),
@@ -434,12 +445,14 @@ def register_routes(app: FastAPI) -> None:
             raise HTTPException(status.HTTP_409_CONFLICT, "This result has no finished 3D mask to correct")
         if case.status == "reviewed":
             raise HTTPException(status.HTTP_409_CONFLICT, "The case is already reviewed; change the decision first")
-        out_dir = request.app.state.storage / "results" / result.id
+        files = request.app.state.files
+        out_dir = files.pull(f"results/{result.id}")
         try:
             labels, affine = read_corrected(read_upload(request, mask), out_dir / result.mask_path)
         except MaskError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
         volumes = save_corrected(labels, affine, out_dir)
+        files.push(f"results/{result.id}")
         # A new dict, so SQLAlchemy sees the JSON change
         result.info = {**(result.info or {}), "corrected_mask": {
             "by": user.id, "at": datetime.now(UTC).isoformat(timespec="seconds"), "volumes_cm3": volumes}}
@@ -496,14 +509,15 @@ def register_routes(app: FastAPI) -> None:
         review = max(case.reviews, key=lambda r: r.created_at, default=None)
         if case.status != "reviewed" or review is None or review.decision == "rejected":
             raise HTTPException(status.HTTP_409_CONFLICT, "Only an approved case has a report PDF")
-        result, storage = db.get(Result, review.result_id), request.app.state.storage
-        scan, out_dir = db.get(Scan, result.scan_id), storage / "results" / result.id
+        result, files = db.get(Result, review.result_id), request.app.state.files
+        scan = db.get(Scan, result.scan_id)
+        scan_dir, out_dir = files.pull(scan.storage_path), files.pull(f"results/{result.id}")
         f = features(result, review)
         images: list[tuple[str, bytes]] = []
         if result.mask_path:
-            images, _ = key_slices_3d(storage / scan.storage_path, out_dir / (CORRECTED if f.mask_corrected else result.mask_path))
-        elif (storage / scan.storage_path / "image.png").is_file():
-            images.append(("Uploaded 2D slice", (storage / scan.storage_path / "image.png").read_bytes()))
+            images, _ = key_slices_3d(scan_dir, out_dir / (CORRECTED if f.mask_corrected else result.mask_path))
+        elif (scan_dir / "image.png").is_file():
+            images.append(("Uploaded 2D slice", (scan_dir / "image.png").read_bytes()))
         if result.gradcam_path:
             images.append(("Grad-CAM: where the 2D model looked (a heatmap, not the outline)",
                            (out_dir / result.gradcam_path).read_bytes()))

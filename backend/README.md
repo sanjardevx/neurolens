@@ -20,6 +20,23 @@ Model versions: each ONNX file carries its version (and the segmenter its small-
 (`neurolens_ml.onnx_meta`). A result stores the versions of the files that actually ran, so releasing a model is
 swapping the file and restarting; old results keep the version that made them. A file without a version is refused.
 
+## Deploy
+
+The live API runs on a Hugging Face Space (Docker, free CPU). `.github/workflows/deploy.yml` uploads `backend/`,
+the inference code from `ml/` and `deploy/hf-space/README.md` to the Space after CI passes on `master`; the Space
+builds `backend/Dockerfile` and downloads the two ONNX files from the model repo named in `MODEL_REPO`.
+
+| Space setting | Kind | Value |
+|---|---|---|
+| `MODEL_REPO` | variable | the Hugging Face model repo with `classifier.onnx` + `segmenter3d.onnx` |
+| `SUPABASE_URL`, `CORS_ORIGINS` | variables | project URL; the dashboard's URL |
+| `REPORT_PROVIDER` | variable | `template` (no LLM key on the public demo) |
+| `DATABASE_URL`, `SUPABASE_SECRET_KEY` | secrets | Postgres session pooler URL; server key for the private `neurolens` storage bucket |
+
+The Space's disk is lost on restart, so with `SUPABASE_SECRET_KEY` set every scan and result folder is mirrored to
+the private bucket and downloaded back when needed (`app/files.py`). GitHub needs the secret `HF_TOKEN` (write access
+to the Space only) and the variable `HF_SPACE` (`<user>/<space>`).
+
 ## Roles
 
 Only two roles: `doctor` and `admin`. The role is read from the login token's `app_metadata.role`,

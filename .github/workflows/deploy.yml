@@ -1,0 +1,45 @@
+name: Deploy
+
+# The API goes to the Hugging Face Space only after CI passed on master. The dashboard deploys through
+# Vercel's own Git integration (production branch: master), so it needs no job here.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+jobs:
+  api:
+    if: github.event.workflow_run.conclusion == 'success' && vars.HF_SPACE != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}  # exactly the commit CI checked
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install "huggingface_hub>=0.30,<2"
+      # The Space builds backend/Dockerfile from its repo root, with the same layout as here
+      - name: Assemble the Space
+        run: |
+          mkdir -p space/backend space/ml
+          cp backend/Dockerfile space/Dockerfile
+          cp .dockerignore deploy/hf-space/README.md space/
+          cp -r backend/pyproject.toml backend/app space/backend/
+          cp -r ml/pyproject.toml ml/neurolens_ml space/ml/
+      - name: Upload to the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          HfApi(token=os.environ["HF_TOKEN"]).upload_folder(
+              folder_path="space", repo_id=os.environ["HF_SPACE"], repo_type="space",
+              delete_patterns=["backend/**", "ml/**"],  # drop files removed since the last deploy
+              commit_message=f"deploy {os.environ['SHA'][:7]}")
+          PY

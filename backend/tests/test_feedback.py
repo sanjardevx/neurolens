@@ -45,7 +45,7 @@ def reviewed(client):
 
 def export(client, tmp_path, tag="fb-test"):
     with client.app.state.db.sessions() as s:
-        return export_feedback(s, client.app.state.storage, tmp_path / "feedback", tag)
+        return export_feedback(s, client.app.state.files, tmp_path / "feedback", tag)
 
 
 def test_feedback_is_grouped_and_written_in_brats_layout(client, reviewed, tmp_path):
