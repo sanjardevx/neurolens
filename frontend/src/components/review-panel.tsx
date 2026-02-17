@@ -72,8 +72,8 @@ export function ReviewPanel({ caseId, caseCode, result, review, reviewed, canDec
   if (reviewed && review) {
     const why = REASONS.find(([r]) => r === review.reason)?.[1];
     return (
-      <section className="flex flex-col gap-3 rounded-xl border bg-background p-5 sm:p-6" aria-label="Decision">
-        <h2 className="text-lg font-semibold">
+      <section className="flex flex-col gap-3" aria-label="Decision">
+        <h2 className="font-semibold">
           {DONE_TEXT[review.decision]}{why ? `: ${why.toLowerCase()}` : ""}
           <span className="font-normal text-muted-foreground"> · {whenOf(review.created_at)}</span>
         </h2>
@@ -107,8 +107,8 @@ export function ReviewPanel({ caseId, caseCode, result, review, reviewed, canDec
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border bg-background p-5 sm:p-6" aria-labelledby="decision-title">
-      <h2 id="decision-title" className="text-lg font-semibold">Your decision</h2>
+    <section className="flex flex-col gap-4" aria-labelledby="decision-title">
+      <h2 id="decision-title" className="font-semibold">Your decision</h2>
       <label className="flex flex-col gap-2">
         <span className="text-sm font-medium">Your notes <span className="font-normal text-muted-foreground">(saved with the case)</span></span>
         <Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3}
@@ -127,7 +127,7 @@ export function ReviewPanel({ caseId, caseCode, result, review, reviewed, canDec
             ))}
           </div>
           <p className="text-sm text-muted-foreground">
-            To fix the outline, use &quot;Fix the mask&quot; in the viewer above. If you change the type, update the report text too.
+            To fix the outline, use &quot;Fix the mask&quot; in the viewer. If you change the type, update the report text too.
           </p>
         </fieldset>
       )}

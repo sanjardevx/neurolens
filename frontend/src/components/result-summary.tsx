@@ -15,11 +15,12 @@ const cm3 = (v: number | undefined) => (v === undefined ? "—" : `${v.toFixed(1
 const pct = (p: number) => `${Math.round(p * 100)}%`;
 const typeLabel = (t: string) => TUMOR_LABELS[t] ?? t;
 
-export function ResultSummary({ caseId, result, reviewed, token }: {
+export function ResultSummary({ caseId, result, reviewed, token, gradcam = true }: {
   caseId: string;
   result: ResultOut;
   reviewed: boolean;
   token: string;
+  gradcam?: boolean;  // false when the page shows the heatmap elsewhere (2D cases: in the main area)
 }) {
   // After the doctor fixed the mask, its volumes are the ones that count; the AI's stay for comparison
   const corrected = result.info?.corrected_mask?.volumes_cm3 ?? null;
@@ -39,12 +40,12 @@ export function ResultSummary({ caseId, result, reviewed, token }: {
     : is3d ? "No tumor found" : "Not measured";
 
   return (
-    <section className="flex flex-col gap-6 rounded-xl border bg-background p-5 sm:p-6" aria-labelledby="result-title">
-      <h2 id="result-title" className="text-lg font-semibold">
+    <section className="flex flex-col gap-5" aria-labelledby="result-title">
+      <h2 id="result-title" className="font-semibold">
         AI result <span className="font-normal text-muted-foreground">· {reviewed ? "reviewed by the doctor" : "a draft until you approve it"}</span>
       </h2>
 
-      <dl className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4">
+      <dl className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
         <Fact label="Tumor type" value={disagree ? "Models disagree" : result.tumor_type ? typeLabel(result.tumor_type) : "—"}
               note={typeNote} />
         <Fact label="Whole tumor" value={!is3d ? "Not measured" : found ? cm3(volumes.whole_tumor) : "None found"}
@@ -113,7 +114,7 @@ export function ResultSummary({ caseId, result, reviewed, token }: {
         )}
       </div>
 
-      {result.has_gradcam && <GradCam caseId={caseId} result={result} token={token} />}
+      {gradcam && result.has_gradcam && <GradCam caseId={caseId} result={result} token={token} />}
 
       <div className="flex flex-col gap-1 border-t pt-4 text-sm text-muted-foreground">
         <p className="font-medium text-foreground">
@@ -127,15 +128,20 @@ export function ResultSummary({ caseId, result, reviewed, token }: {
 
 function Fact({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg bg-muted/60 px-4 py-3">
+    <div className="flex flex-col gap-1 rounded-lg bg-muted/60 px-3.5 py-3">
       <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-xl font-semibold">{value}</dd>
+      <dd className="text-lg font-semibold">{value}</dd>
       {note && <dd className="text-sm text-muted-foreground">{note}</dd>}
     </div>
   );
 }
 
-function GradCam({ caseId, result, token }: { caseId: string; result: ResultOut; token: string }) {
+export function GradCam({ caseId, result, token, large = false }: {
+  caseId: string;
+  result: ResultOut;
+  token: string;
+  large?: boolean;  // the main image of a 2D case
+}) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -157,9 +163,10 @@ function GradCam({ caseId, result, token }: { caseId: string; result: ResultOut;
   }, [caseId, result.id, token]);
 
   return (
-    <figure className="flex flex-col gap-2">
+    <figure className={large ? "flex h-full min-h-0 flex-col items-center gap-2 p-4 text-zinc-100" : "flex flex-col gap-2"}>
       <h3 className="font-semibold">Where the 2D model looked (Grad-CAM)</h3>
-      <div className="flex aspect-square w-full max-w-sm items-center justify-center overflow-hidden rounded-xl bg-black">
+      <div className={`flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-black ${
+        large ? "min-h-0 w-auto max-w-full flex-1" : "w-full max-w-sm"}`}>
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element -- a local blob URL; next/image can't optimize it
           <img src={src} alt="Grad-CAM heatmap over the MRI slice the 2D model classified" className="size-full object-contain" />
@@ -167,7 +174,7 @@ function GradCam({ caseId, result, token }: { caseId: string; result: ResultOut;
           <span className="text-sm text-zinc-400">{failed ? "Heatmap could not be loaded." : "Loading heatmap…"}</span>
         )}
       </div>
-      <figcaption className="max-w-sm text-sm text-muted-foreground">
+      <figcaption className={`max-w-sm text-sm ${large ? "text-zinc-400" : "text-muted-foreground"}`}>
         Red areas mattered most for the tumor type. It is a heatmap, not the tumor outline.
       </figcaption>
     </figure>
