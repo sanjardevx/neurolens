@@ -1,6 +1,7 @@
 "use client";
 
 import type { Niivue } from "@niivue/niivue";
+import { Brush, Columns2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { API_URL, upload } from "@/lib/api";
@@ -47,9 +48,38 @@ const PEN_SIZES = [
 ] as const;
 type Tool = Region | "erase";
 
-/** Dark reading-room viewer for one stored 3D scan: pick the MRI type and the plane, scroll the slices,
- *  lay the AI mask on top (per region, with opacity) and, for the case's doctor, fix the mask with a brush. */
-export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMaskSaved, token }: {
+async function makeNiivue(canvas: HTMLCanvasElement) {
+  const { Niivue } = await import("@niivue/niivue");
+  const nv = new Niivue({
+    backColor: [0, 0, 0, 1],
+    crosshairColor: [0.23, 0.51, 0.96, 1],
+    crosshairWidth: 1,
+    isRadiologicalConvention: true,  // patient's right on the screen's left, as radiologists read
+    isOrientationTextVisible: true,
+    dragAndDropEnabled: false,
+    show3Dcrosshair: false,
+    multiplanarPadPixels: 4,
+    multiplanarShowRender: 0,  // SHOW_RENDER.NEVER: three slice planes only, no 3D render tile
+    logLevel: "error",
+    loadingText: "",
+  });
+  await nv.attachToCanvas(canvas);
+  return nv;
+}
+
+/** Look of a loaded mask overlay (volume 1): which regions, how opaque. */
+function paintMask(nv: Niivue, shown: Record<Region, boolean>, opacity: number) {
+  const mask = nv.volumes[1];
+  if (!mask) return;
+  mask.setColormapLabel(maskColors(shown));
+  nv.setOpacity(1, opacity);
+  nv.updateGLVolume();
+}
+
+/** Reading-room viewer for one stored 3D scan. It fills its parent's height: pick the MRI type and plane,
+ *  scroll the slices, lay the mask on top, fix it with a brush, or compare the AI mask with the doctor's fix
+ *  side by side (both views move together). */
+export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMaskSaved, token, volumes }: {
   caseId: string;
   scanId: string;
   resultId: string | null;  // the result whose mask to overlay; null while there is none
@@ -57,8 +87,10 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
   canEdit: boolean;
   onMaskSaved: () => void;
   token: string;
+  volumes?: { ai?: number; fixed?: number };  // whole-tumor cm³, for the compare labels
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const canvasAi = useRef<HTMLCanvasElement>(null);
   const nvRef = useRef<Niivue | null>(null);
   const [nvReady, setNvReady] = useState(false);
   const [mri, setMri] = useState<Mri>("flair");
@@ -73,28 +105,20 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
   const [penSize, setPenSize] = useState<number>(3);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [compare, setCompare] = useState(false);
+  const canCompare = maskKind === "corrected" && resultId !== null;
+  const comparing = compare && canCompare && !editing;
+  const headers = { Authorization: `Bearer ${token}` };
 
   // WebGL needs the browser, so NiiVue is loaded and attached only after the page is on screen
   useEffect(() => {
     let nv: Niivue | null = null;
     let gone = false;
-    import("@niivue/niivue").then(async ({ Niivue }) => {
-      if (gone || !canvas.current) return;
-      nv = new Niivue({
-        backColor: [0, 0, 0, 1],
-        crosshairColor: [0.23, 0.51, 0.96, 1],
-        crosshairWidth: 1,
-        isRadiologicalConvention: true,  // patient's right on the screen's left, as radiologists read
-        isOrientationTextVisible: true,
-        dragAndDropEnabled: false,
-        show3Dcrosshair: false,
-        multiplanarPadPixels: 4,
-        multiplanarShowRender: 0,  // SHOW_RENDER.NEVER: three slice planes only, no 3D render tile
-        logLevel: "error",
-        loadingText: "",
-      });
-      await nv.attachToCanvas(canvas.current);
-      nvRef.current = nv;
+    if (!canvas.current) return;
+    makeNiivue(canvas.current).then((made) => {
+      if (gone) return made.cleanup();
+      nv = made;
+      nvRef.current = made;
       setNvReady(true);
     });
     return () => {
@@ -111,7 +135,6 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
     let live = true;
     const keep = nv.volumes.length ? [...nv.scene.crosshairPos] : null;
     setState("loading");
-    const headers = { Authorization: `Bearer ${token}` };
     nv.loadVolumes([
       // name with the extension tells NiiVue the file format; the URL itself has none
       { url: `${API_URL}/cases/${caseId}/scans/${scanId}/${mri}`, name: `${mri}.nii.gz`, headers },
@@ -128,19 +151,60 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
     return () => {
       live = false;
     };
+    // headers is rebuilt from token each render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nvReady, mri, caseId, scanId, resultId, maskKind, token]);
 
-  // Mask look: which regions, how opaque, on or off. The mask is volume 1 when it exists.
+  // Mask look. While editing, the drawing layer shows the mask instead; the overlay volume would double it.
   useEffect(() => {
     const nv = nvRef.current;
-    const mask = nv?.volumes[1];
-    if (!nv || !mask || state !== "ready") return;
-    mask.setColormapLabel(maskColors(shown));
-    // While editing, the drawing layer shows the mask instead; the overlay volume would double it
-    nv.setOpacity(1, maskOn && !editing ? opacity : 0);
+    if (!nv || state !== "ready") return;
+    paintMask(nv, shown, maskOn && !editing ? opacity : 0);
     nv.setDrawOpacity(opacity);
-    nv.updateGLVolume();
   }, [state, maskOn, shown, opacity, editing]);
+
+  // Compare: a second view with the same MRI and the AI's mask; the two views follow each other
+  const nvAiRef = useRef<Niivue | null>(null);
+  const [aiReady, setAiReady] = useState(false);
+  useEffect(() => {
+    const main = nvRef.current;
+    if (!comparing || state !== "ready" || !main || !canvasAi.current || !resultId) return;
+    let nv: Niivue | null = null;
+    let gone = false;
+    makeNiivue(canvasAi.current).then(async (made) => {
+      if (gone) return made.cleanup();
+      nv = made;
+      await made.loadVolumes([
+        { url: `${API_URL}/cases/${caseId}/scans/${scanId}/${mri}`, name: `${mri}.nii.gz`, headers },
+        { url: `${API_URL}/cases/${caseId}/results/${resultId}/mask`, name: "mask.nii.gz", headers },
+      ]);
+      if (gone) return;
+      made.scene.crosshairPos = [...main.scene.crosshairPos] as typeof made.scene.crosshairPos;
+      made.broadcastTo(main, { "2d": true, "3d": true });
+      main.broadcastTo(made, { "2d": true, "3d": true });
+      nvAiRef.current = made;
+      setAiReady(true);
+    });
+    // The main view just got narrower; let NiiVue fit its canvas again
+    requestAnimationFrame(() => main.resizeListener());
+    return () => {
+      gone = true;
+      main.broadcastTo([], { "2d": false, "3d": false });
+      nv?.cleanup();
+      nvAiRef.current = null;
+      setAiReady(false);
+      requestAnimationFrame(() => nvRef.current?.resizeListener());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comparing, state, mri, caseId, scanId, resultId, token]);
+
+  // The AI view copies the plane and the mask look of the main view
+  useEffect(() => {
+    const nv = nvAiRef.current;
+    if (!nv || !aiReady) return;
+    nv.setSliceType(view.type);
+    paintMask(nv, shown, maskOn ? opacity : 0);
+  }, [aiReady, view, shown, opacity, maskOn]);
 
   // Brush: pen value = BraTS label (0 erases); size in voxels on the slice being drawn
   useEffect(() => {
@@ -209,126 +273,153 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
     const nv = nvRef.current;
     if (!nv || view.axis === null || !slice) return;
     nv.scene.crosshairPos[view.axis] = (i - 0.5) / slice.n;
-    nv.drawScene();
+    nv.drawScene();  // also pushes the position to the compare view
     setSlice({ ...slice, i });
   }
 
+  const cm3 = (v?: number) => (v === undefined ? "" : ` · ${v.toFixed(1)} cm³`);
+  const delta = volumes?.ai !== undefined && volumes.fixed !== undefined ? volumes.fixed - volumes.ai : null;
+
   return (
-    <section aria-label="Scan viewer" className="flex flex-col gap-3 rounded-xl bg-zinc-950 p-3 text-zinc-100 sm:p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <section aria-label="Scan viewer" className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
+      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
         <Segmented label="MRI type" options={MRI.map(([id, l]) => [id, l])} value={mri} disabled={editing}
                    onPick={(v) => setMri(v as Mri)} />
         <Segmented label="Plane" options={VIEWS.map((v) => [v.id, v.label])} value={view.id}
                    onPick={(id) => setView(VIEWS.find((v) => v.id === id)!)} />
-      </div>
-
-      <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-black sm:aspect-[4/3]">
-        <canvas ref={canvas} className="size-full" aria-label={`${mri.toUpperCase()} MRI, ${view.label} view`} />
-        {state !== "ready" && (
-          <p role="status" className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
-            {state === "loading" ? "Loading the scan…" : "The scan could not be loaded."}
-          </p>
-        )}
-      </div>
-
-      {slice ? (
-        <label className="flex items-center gap-3 text-sm text-zinc-300">
-          <span className="w-28 shrink-0 tabular-nums">Slice {slice.i} / {slice.n}</span>
-          <input
-            type="range"
-            min={1}
-            max={slice.n}
-            value={slice.i}
-            onChange={(e) => goToSlice(Number(e.target.value))}
-            className="w-full accent-blue-500"
-            aria-label={`${view.label} slice`}
-          />
-        </label>
-      ) : (
-        <p className="text-sm text-zinc-400">Click a view to move the crosshair; scroll inside a view to change its slice.</p>
-      )}
-      {resultId && (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-zinc-800 pt-3 text-sm">
-          <button
-            type="button"
-            aria-pressed={maskOn}
-            disabled={editing}
-            onClick={() => setMaskOn(!maskOn)}
-            className={`min-h-9 rounded-md px-3 font-semibold ${maskOn ? "bg-zinc-100 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
-          >
-            AI mask {maskOn ? "on" : "off"}
-          </button>
-          <fieldset className="flex flex-wrap gap-x-4 gap-y-2" disabled={!maskOn || editing}>
-            <legend className="sr-only">Mask regions</legend>
-            {REGIONS.map((r) => (
-              <label key={r.id} className={`flex min-h-9 items-center gap-2 ${maskOn && !editing ? "text-zinc-200" : "text-zinc-600"}`}>
-                <input
-                  type="checkbox"
-                  checked={shown[r.id]}
-                  onChange={(e) => setShown({ ...shown, [r.id]: e.target.checked })}
-                  className="size-4 accent-blue-500"
-                />
-                <span className={`size-2.5 rounded-full ${r.swatch}`} aria-hidden />
-                {r.label}
-              </label>
-            ))}
-          </fieldset>
-          <label className={`flex min-w-48 flex-1 items-center gap-3 ${maskOn ? "text-zinc-300" : "text-zinc-600"}`}>
-            <span className="shrink-0">Opacity</span>
-            <input
-              type="range"
-              min={0.1}
-              max={1}
-              step={0.05}
-              value={opacity}
-              disabled={!maskOn}
-              onChange={(e) => setOpacity(Number(e.target.value))}
-              className="w-full accent-blue-500"
-              aria-label="Mask opacity"
-            />
-            <span className="w-10 text-right tabular-nums">{Math.round(opacity * 100)}%</span>
-          </label>
-        </div>
-      )}
-      {resultId && !editing && (
-        <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400">
-          <span>{maskKind === "corrected" ? "Showing your corrected mask." : "Showing the AI mask."}</span>
-          {canEdit && (
-            <button type="button" onClick={startEditing} disabled={state !== "ready"}
-                    className="min-h-9 rounded-md border border-zinc-700 px-3 font-semibold text-zinc-100 hover:bg-zinc-900">
-              Fix the mask
-            </button>
+        <div className="ml-auto flex gap-2">
+          {canCompare && !editing && (
+            <ToolButton pressed={compare} onClick={() => setCompare(!compare)} disabled={state !== "ready"}>
+              <Columns2 className="size-4" aria-hidden /> Compare AI vs your fix
+            </ToolButton>
+          )}
+          {canEdit && resultId && !editing && !comparing && (
+            <ToolButton onClick={startEditing} disabled={state !== "ready"}>
+              <Brush className="size-4" aria-hidden /> Fix the mask
+            </ToolButton>
           )}
         </div>
-      )}
-      {editing && (
-        <div className="flex flex-col gap-3 rounded-lg border border-blue-500/40 bg-zinc-900 p-3 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <Segmented label="Brush" value={tool} onPick={(t) => setTool(t as Tool)}
-                       options={[...REGIONS.map((r) => [r.id, r.label] as const), ["erase", "Eraser"] as const]} />
-            <Segmented label="Brush size" value={String(penSize)} onPick={(v) => setPenSize(Number(v))}
-                       options={PEN_SIZES.map(([l, n]) => [String(n), l] as const)} />
-            <button type="button" onClick={() => nvRef.current?.drawUndo()}
-                    className="min-h-9 rounded-md px-3 font-semibold text-zinc-300 hover:bg-zinc-800">
-              Undo
-            </button>
+      </div>
+
+      <div className={`relative grid min-h-0 flex-1 gap-1 bg-black ${comparing ? "grid-cols-2" : "grid-cols-1"}`}>
+        {comparing && (
+          <div className="relative min-h-0">
+            <canvas ref={canvasAi} className="size-full" aria-label={`${mri.toUpperCase()} MRI with the AI mask`} />
+            <PaneLabel>AI mask{cm3(volumes?.ai)}</PaneLabel>
+            {!aiReady && <p role="status" className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">Loading…</p>}
           </div>
-          <p className="text-zinc-400">Drag on a slice to paint; scroll to move between slices. The AI&apos;s mask is kept as it was.</p>
-          {editError && <p role="alert" className="rounded-md bg-red-500/15 px-3 py-2 text-red-300">{editError}</p>}
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={saveMask} disabled={saving}
-                    className="min-h-10 rounded-md bg-blue-600 px-4 font-semibold text-white hover:bg-blue-500 disabled:opacity-60">
-              {saving ? "Saving…" : "Save mask"}
-            </button>
-            <button type="button" onClick={stopEditing} disabled={saving}
-                    className="min-h-10 rounded-md px-4 font-semibold text-zinc-300 hover:bg-zinc-800">
-              Cancel
-            </button>
-          </div>
+        )}
+        <div className="relative min-h-0">
+          <canvas ref={canvas} className="size-full" aria-label={`${mri.toUpperCase()} MRI, ${view.label} view`} />
+          {comparing && (
+            <PaneLabel>
+              Your fix{cm3(volumes?.fixed)}
+              {delta !== null && ` (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`}
+            </PaneLabel>
+          )}
+          {state !== "ready" && (
+            <p role="status" className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
+              {state === "loading" ? "Loading the scan…" : "The scan could not be loaded."}
+            </p>
+          )}
         </div>
-      )}
-      <p className="text-xs text-zinc-500">Radiological view: the patient&apos;s right is on the left (R / L marks on the image).</p>
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-zinc-800 px-3 py-2 text-sm">
+        {slice ? (
+          <label className="flex items-center gap-3 text-zinc-300">
+            <span className="w-24 shrink-0 tabular-nums">Slice {slice.i} / {slice.n}</span>
+            <input type="range" min={1} max={slice.n} value={slice.i} onChange={(e) => goToSlice(Number(e.target.value))}
+                   className="w-full accent-blue-500" aria-label={`${view.label} slice`} />
+          </label>
+        ) : (
+          <p className="text-zinc-400">Click a view to move the crosshair; scroll inside a view to change its slice.</p>
+        )}
+
+        {resultId && !editing && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <button type="button" aria-pressed={maskOn} onClick={() => setMaskOn(!maskOn)}
+                    className={`min-h-8 rounded-md px-3 font-semibold ${maskOn ? "bg-zinc-100 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}>
+              {maskKind === "corrected" && !comparing ? "Your mask" : "Mask"} {maskOn ? "on" : "off"}
+            </button>
+            <fieldset className="flex flex-wrap gap-x-3 gap-y-1" disabled={!maskOn}>
+              <legend className="sr-only">Mask regions</legend>
+              {REGIONS.map((r) => (
+                <label key={r.id} className={`flex min-h-8 items-center gap-1.5 ${maskOn ? "text-zinc-200" : "text-zinc-600"}`}>
+                  <input type="checkbox" checked={shown[r.id]} onChange={(e) => setShown({ ...shown, [r.id]: e.target.checked })}
+                         className="size-4 accent-blue-500" />
+                  <span className={`size-2.5 rounded-full ${r.swatch}`} aria-hidden />
+                  {r.label}
+                </label>
+              ))}
+            </fieldset>
+            <label className={`flex min-w-40 flex-1 items-center gap-2 ${maskOn ? "text-zinc-300" : "text-zinc-600"}`}>
+              <span className="shrink-0">Opacity</span>
+              <input type="range" min={0.1} max={1} step={0.05} value={opacity} disabled={!maskOn}
+                     onChange={(e) => setOpacity(Number(e.target.value))} className="w-full accent-blue-500" aria-label="Mask opacity" />
+              <span className="w-9 text-right tabular-nums">{Math.round(opacity * 100)}%</span>
+            </label>
+          </div>
+        )}
+
+        {editing && (
+          <div className="flex flex-col gap-2 rounded-lg border border-blue-500/40 bg-zinc-900 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented label="Brush" value={tool} onPick={(t) => setTool(t as Tool)}
+                         options={[...REGIONS.map((r) => [r.id, r.label] as const), ["erase", "Eraser"] as const]} />
+              <Segmented label="Brush size" value={String(penSize)} onPick={(v) => setPenSize(Number(v))}
+                         options={PEN_SIZES.map(([l, n]) => [String(n), l] as const)} />
+              <button type="button" onClick={() => nvRef.current?.drawUndo()}
+                      className="min-h-8 rounded-md px-3 font-semibold text-zinc-300 hover:bg-zinc-800">
+                Undo
+              </button>
+              <div className="ml-auto flex gap-2">
+                <button type="button" onClick={stopEditing} disabled={saving}
+                        className="min-h-9 rounded-md px-3 font-semibold text-zinc-300 hover:bg-zinc-800">
+                  Cancel
+                </button>
+                <button type="button" onClick={saveMask} disabled={saving}
+                        className="min-h-9 rounded-md bg-blue-600 px-4 font-semibold text-white hover:bg-blue-500 disabled:opacity-60">
+                  {saving ? "Saving…" : "Save mask"}
+                </button>
+              </div>
+            </div>
+            <p className="text-zinc-400">Drag on a slice to paint; scroll to move between slices. The AI&apos;s mask is kept as it was.</p>
+            {editError && <p role="alert" className="rounded-md bg-red-500/15 px-3 py-2 text-red-300">{editError}</p>}
+          </div>
+        )}
+        <p className="text-xs text-zinc-500">Radiological view: the patient&apos;s right is on the left (R / L marks on the image).</p>
+      </div>
     </section>
+  );
+}
+
+function PaneLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-zinc-900/85 px-2 py-1 text-xs font-semibold text-zinc-100">
+      {children}
+    </span>
+  );
+}
+
+function ToolButton({ children, onClick, pressed, disabled }: {
+  children: React.ReactNode;
+  onClick: () => void;
+  pressed?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex min-h-9 items-center gap-1.5 rounded-md border px-3 text-[13px] font-semibold disabled:opacity-50 ${
+        pressed ? "border-zinc-100 bg-zinc-100 text-zinc-950" : "border-zinc-700 text-zinc-100 hover:bg-zinc-900"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -340,7 +431,7 @@ function Segmented({ label, options, value, onPick, disabled }: {
   disabled?: boolean;
 }) {
   return (
-    <div role="group" aria-label={label} className="flex rounded-lg bg-zinc-900 p-1">
+    <div role="group" aria-label={label} className="flex rounded-lg bg-zinc-900 p-0.5">
       {options.map(([id, text]) => (
         <button
           key={id}
@@ -348,7 +439,7 @@ function Segmented({ label, options, value, onPick, disabled }: {
           aria-pressed={value === id}
           disabled={disabled}
           onClick={() => onPick(id)}
-          className={`min-h-9 rounded-md px-3 text-[13px] font-semibold ${
+          className={`min-h-8 rounded-md px-2.5 text-[13px] font-semibold ${
             value === id ? "bg-zinc-100 text-zinc-950" : "text-zinc-400 hover:text-zinc-100"
           } disabled:opacity-50`}
         >
