@@ -6,6 +6,14 @@ Brain tumor MRI analysis for doctors: **classify** the scan, **show where the mo
 
 > ⚠️ Research and portfolio project, **not a medical device**. Results are not a diagnosis. Trained only on public datasets.
 
+**Live:** [neurolens-smoky.vercel.app](https://neurolens-smoky.vercel.app) (doctor accounts only, made by the admin; the flow is shown below). The scans in the pictures are BraTS 2021 and public test images the models never trained on.
+
+![Review flow: open a case, scroll the 3D scan, fix the mask, compare it with the AI, approve the report](docs/media/review-flow.gif)
+
+| Worklist | AI mask vs the doctor's fix, approved report | 2D slice: type + Grad-CAM |
+|---|---|---|
+| ![Worklist](docs/media/worklist.jpg) | ![Compare and approve](docs/media/compare-approved.jpg) | ![2D Grad-CAM](docs/media/gradcam-2d.jpg) |
+
 ## How it works
 
 ```
@@ -18,7 +26,7 @@ doctor login → new case (anonymous ID) → upload 3D MRI → quality check
 | Classify | EfficientNet-B3 on brain-cropped scans (timm) | glioma · meningioma · pituitary · no tumor + confidence |
 | Explain | Grad-CAM | heatmap of where the model looked |
 | Segment | 3D SegResNet (MONAI), BraTS 2021 | edema · tumor core · enhancing tumor masks, volume in cm³ per part, side of the brain and a rough lobe |
-| Review | 3D viewer (NiiVue) | doctor approves, edits or rejects; every action logged |
+| Review | 3D viewer (NiiVue) | doctor fixes the mask, compares it with the AI's side by side, approves, edits or rejects; every action logged |
 | Report | template, optional LLM draft (Ollama or LLM API) | doctor-approved PDF from structured features |
 
 ## Engineering highlights
@@ -36,6 +44,8 @@ doctor login → new case (anonymous ID) → upload 3D MRI → quality check
 - **Feedback loop.** Doctors' corrections are exported as a versioned training set, the segmenter is fine-tuned on them, and the new version replaces the old one only if it is not worse on the held-out test split. v2 learned the fixes (0.745 → 0.841 Dice on those cases) and gained a little on test (+0.004), so it is served ([details](#feedback-loop)).
 - **Traceable model versions.** Each model file carries its own version and settings; every result stores the versions that actually ran, and the worklist shows them. Releasing a model is swapping one file.
 - **A worklist built for reading.** Cases waiting for review come first, largest tumors on top. Upload shows real progress, the AI job reports its own progress, and every result is labeled a draft until a doctor approves it.
+- **A reading-room layout.** Like imaging viewers: the scan fills the screen, findings and the report sit in a side panel, the menu is a slim icon rail. When the two models contradict each other (the 2D model says "no tumor", the 3D model outlines one), the result says "Models disagree" instead of a confident type.
+- **Deployed with CI gates.** Lint, 258 tests (199 API + 59 ML) and the dashboard build run on every push. After CI passes on `master`, the API image is built and deployed to Azure Container Apps with a keyless login (no stored password); the dashboard deploys on Vercel. The API sleeps when idle, and scans are mirrored to private Supabase storage so a restart loses nothing.
 - **Doctor-only, audited access.** Supabase login with two roles (doctor, admin). A doctor only reaches their own cases; every endpoint is tested with every kind of caller. Uploads, analyses and review decisions go to an audit log.
 
 ## Results
@@ -49,6 +59,8 @@ _Only measured numbers from real runs. `—` = not measured._
 | 3D segmenter (v2, served) | Dice, whole tumor | ≥ 0.85 | **0.928** |
 | 3D segmenter (v2, served) | Dice, tumor core | ≥ 0.75 | **0.914** |
 | 3D segmenter (v2, served) | Dice, enhancing tumor | ≥ 0.70 | **0.872** |
+
+**On the live site** (one end-to-end check, not a benchmark): BraTS2021_00020 from the test split, uploaded as 4 `.nii.gz` files, was analyzed in about 27 s on the server (2 vCPU). Whole tumor 62.8 cm³ vs 59.9 in the expert mask (core 33.2 vs 32.1, enhancing 21.4 vs 20.4). One test image per class got the right type (glioma 89%, meningioma 84%, pituitary 87%, no tumor 97%). On this BraTS case the 2D classifier said "no tumor" (81%): it was trained on another dataset and sees one slice, so the app flags the conflict with the 3D outline.
 
 Final classifier: EfficientNet-B3 (384 px) on brain-cropped scans, 710 clean test images, 4 errors, full precision (fp32). [Test confusion matrix](ml/results/03_final/confusion_final_test.png) · [Model card](ml/MODEL_CARD.md) (intended use, per-class scores, limitations).
 
@@ -165,6 +177,7 @@ ml/results/     metrics, confusion matrices, Grad-CAM figures
 ml/MODEL_CARD.md  what the classifier is for, how it was tested, its limits
 backend/        FastAPI + ONNX Runtime: login, cases, upload, AI jobs, review, audit log (see backend/README.md)
 frontend/       Next.js dashboard for doctors: login, worklist, upload, 3D review, audit log (see frontend/README.md)
+docs/media/     README screenshots and the demo GIF
 ```
 
 ## Run it
