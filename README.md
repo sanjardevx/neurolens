@@ -6,6 +6,8 @@ Brain tumor MRI analysis for doctors: **classify** the scan, **show where the mo
 
 > ⚠️ Research and portfolio project, **not a medical device**. Results are not a diagnosis. Trained only on public datasets.
 
+**▶ Demo video (85 s):** [youtu.be/zsU-OzZJ1S4](https://youtu.be/zsU-OzZJ1S4): a real recording of the live app, from the worklist to the approved PDF.
+
 **Live:** [neurolens-smoky.vercel.app](https://neurolens-smoky.vercel.app) (doctor accounts only, made by the admin; the flow is shown below). The scans in the pictures are BraTS 2021 and public test images the models never trained on.
 
 ![Review flow: open a case, scroll the 3D scan, fix the mask, compare it with the AI, approve the report](docs/media/review-flow.gif)
