@@ -278,7 +278,10 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
   }
 
   const cm3 = (v?: number) => (v === undefined ? "" : ` · ${v.toFixed(1)} cm³`);
-  const delta = volumes?.ai !== undefined && volumes.fixed !== undefined ? volumes.fixed - volumes.ai : null;
+  // Difference of the two numbers as shown (1 decimal), so the labels always add up
+  const tenths = (v: number) => Math.round(v * 10);
+  const delta = volumes?.ai !== undefined && volumes.fixed !== undefined
+    ? (tenths(volumes.fixed) - tenths(volumes.ai)) / 10 : null;
 
   return (
     <section aria-label="Scan viewer" className="flex h-full min-h-0 flex-col bg-zinc-950 text-zinc-100">
@@ -314,8 +317,16 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
           {comparing && (
             <PaneLabel>
               Your fix{cm3(volumes?.fixed)}
-              {delta !== null && ` (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`}
+              {delta !== null && (delta === 0 ? " (same)" : ` (${delta > 0 ? "+" : ""}${delta.toFixed(1)})`)}
             </PaneLabel>
+          )}
+          {editing && (
+            <div className="pointer-events-none absolute inset-x-2 bottom-2 flex flex-col items-start gap-1 text-xs">
+              {editError && <p role="alert" className="rounded-md bg-red-950/90 px-2 py-1 font-semibold text-red-200">{editError}</p>}
+              <p className="rounded-md bg-zinc-900/85 px-2 py-1 text-zinc-300">
+                Drag to paint · scroll to change slice · the AI&apos;s mask is kept as it was
+              </p>
+            </div>
           )}
           {state !== "ready" && (
             <p role="status" className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
@@ -337,7 +348,7 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
         )}
 
         {resultId && !editing && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex min-h-9 flex-wrap items-center gap-x-4 gap-y-2">
             <button type="button" aria-pressed={maskOn} onClick={() => setMaskOn(!maskOn)}
                     className={`min-h-8 rounded-md px-3 font-semibold ${maskOn ? "bg-zinc-100 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}>
               {maskKind === "corrected" && !comparing ? "Your mask" : "Mask"} {maskOn ? "on" : "off"}
@@ -362,30 +373,27 @@ export function ScanViewer({ caseId, scanId, resultId, maskKind, canEdit, onMask
           </div>
         )}
 
+        {/* Same height as the mask row it replaces, so the scan doesn't jump when editing starts */}
         {editing && (
-          <div className="flex flex-col gap-2 rounded-lg border border-blue-500/40 bg-zinc-900 p-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented label="Brush" value={tool} onPick={(t) => setTool(t as Tool)}
-                         options={[...REGIONS.map((r) => [r.id, r.label] as const), ["erase", "Eraser"] as const]} />
-              <Segmented label="Brush size" value={String(penSize)} onPick={(v) => setPenSize(Number(v))}
-                         options={PEN_SIZES.map(([l, n]) => [String(n), l] as const)} />
-              <button type="button" onClick={() => nvRef.current?.drawUndo()}
+          <div className="flex min-h-9 flex-wrap items-center gap-2">
+            <Segmented label="Brush" value={tool} onPick={(t) => setTool(t as Tool)}
+                       options={[...REGIONS.map((r) => [r.id, r.label] as const), ["erase", "Eraser"] as const]} />
+            <Segmented label="Brush size" value={String(penSize)} onPick={(v) => setPenSize(Number(v))}
+                       options={PEN_SIZES.map(([l, n]) => [String(n), l] as const)} />
+            <button type="button" onClick={() => nvRef.current?.drawUndo()}
+                    className="min-h-8 rounded-md px-3 font-semibold text-zinc-300 hover:bg-zinc-800">
+              Undo
+            </button>
+            <div className="ml-auto flex gap-2">
+              <button type="button" onClick={stopEditing} disabled={saving}
                       className="min-h-8 rounded-md px-3 font-semibold text-zinc-300 hover:bg-zinc-800">
-                Undo
+                Cancel
               </button>
-              <div className="ml-auto flex gap-2">
-                <button type="button" onClick={stopEditing} disabled={saving}
-                        className="min-h-9 rounded-md px-3 font-semibold text-zinc-300 hover:bg-zinc-800">
-                  Cancel
-                </button>
-                <button type="button" onClick={saveMask} disabled={saving}
-                        className="min-h-9 rounded-md bg-blue-600 px-4 font-semibold text-white hover:bg-blue-500 disabled:opacity-60">
-                  {saving ? "Saving…" : "Save mask"}
-                </button>
-              </div>
+              <button type="button" onClick={saveMask} disabled={saving}
+                      className="min-h-8 rounded-md bg-blue-600 px-4 font-semibold text-white hover:bg-blue-500 disabled:opacity-60">
+                {saving ? "Saving…" : "Save mask"}
+              </button>
             </div>
-            <p className="text-zinc-400">Drag on a slice to paint; scroll to move between slices. The AI&apos;s mask is kept as it was.</p>
-            {editError && <p role="alert" className="rounded-md bg-red-500/15 px-3 py-2 text-red-300">{editError}</p>}
           </div>
         )}
         <p className="text-xs text-zinc-500">Radiological view: the patient&apos;s right is on the left (R / L marks on the image).</p>
